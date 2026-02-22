@@ -1,8 +1,8 @@
-# CCPFS — Capacity-Constrained Personalised Follow-Up Scheduling
+# CCPFS - Capacity-Constrained Personalised Follow-Up Scheduling
 
 An optimisation framework that uses patient-level survival predictions to schedule post-discharge follow-up appointments under clinic capacity constraints, minimising adverse events while respecting resource limits.
 
-**Validated on MIMIC-IV v3.1** — 275,022 discharge episodes from 137,054 patients, achieving a 33.4% cost reduction over standard uniform scheduling.
+**Validated on MIMIC-IV v3.1** - 275,022 discharge episodes from 137,054 patients, achieving a 33.4% cost reduction over standard uniform scheduling.
 
 ## Problem
 
@@ -19,7 +19,7 @@ Evaluated on 27,641 held-out test patients from MIMIC-IV across 8 scheduling pol
 
 | Policy | Cost/patient | vs Uniform-14 |
 |--------|-------------|----------------|
-| Uniform-14 (baseline) | €1,433 | — |
+| Uniform-14 (baseline) | €1,433 | - |
 | Guideline (ACC/AHA) | €2,025 | +41.3% |
 | Risk-Bucket | €1,429 | -0.3% |
 | **CCPFS ILP (specialty)** | **€954** | **-33.4%** |
@@ -73,7 +73,7 @@ scheduling_follow_up/
 ├── notebooks/                      # Jupyter demonstrations
 │   └── 01_pipeline_demo.ipynb      # Pipeline demo with visualisations
 │
-└── data/                           # Gitignored — restricted MIMIC-IV data
+└── data/                           # Gitignored - restricted MIMIC-IV data
     ├── meds/                       # MEDS-format MIMIC-IV (364K patients, 366 shards)
     └── processed/                  # Cohort, features, models, results
 ```
@@ -159,24 +159,24 @@ The ILP assigns each patient to exactly one day, minimising total expected cost 
 
 ## Hypotheses
 
-- **H1**: Risk-optimised allocation under capacity constraints reduces expected cost compared to fixed-schedule and guideline policies — **Confirmed** (33.4% reduction vs uniform)
-- **H2**: Coarse risk stratification provides negligible improvement over uniform scheduling — **Confirmed** (0.3% reduction)
-- **H3**: The greedy heuristic achieves near-optimal cost reduction compared to the exact ILP — **Confirmed** (>99% of ILP's cost reduction)
+- **H1**: Risk-optimised allocation under capacity constraints reduces expected cost compared to fixed-schedule and guideline policies - **Confirmed** (33.4% reduction vs uniform)
+- **H2**: Coarse risk stratification provides negligible improvement over uniform scheduling - **Confirmed** (0.3% reduction)
+- **H3**: The greedy heuristic achieves near-optimal cost reduction compared to the exact ILP - **Confirmed** (>99% of ILP's cost reduction)
 
 ## Technology
 
 - **Python 3.12**
-- **NumPy / SciPy** — numerical computation
-- **PuLP** — ILP formulation and CBC solver
-- **scikit-survival** — gradient-boosted survival analysis
-- **lifelines** — Cox proportional hazards
-- **Polars / PyArrow** — streaming data processing
-- **matplotlib / seaborn** — visualisation
-- **pytest** — test suite (24 tests passing)
+- **NumPy / SciPy** - numerical computation
+- **PuLP** - ILP formulation and CBC solver
+- **scikit-survival** - gradient-boosted survival analysis
+- **lifelines** - Cox proportional hazards
+- **Polars / PyArrow** - streaming data processing
+- **matplotlib / seaborn** - visualisation
+- **pytest** - test suite (24 tests passing)
 
 ## Data
 
-**All data directories are gitignored** — the `data/` folder, trained models in `models/saved/`, and derived outputs are excluded from version control because they contain or are derived from restricted clinical data.
+**All data directories are gitignored** - the `data/` folder, trained models in `models/saved/`, and derived outputs are excluded from version control because they contain or are derived from restricted clinical data.
 
 ### Access Requirements
 
