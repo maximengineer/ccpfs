@@ -12,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 
-from config import C_EVENT, C_VISIT, HORIZON_DAYS
+from config import C_EVENT, C_VISIT, DEFAULT_SPECIALTY_CAPACITY, HORIZON_DAYS, N_SPECIALTIES
 
 
 def _compute_total_cost(
@@ -126,6 +126,125 @@ def guideline_policy(
         "total_expected_cost": _compute_total_cost(
             assignments, survival_curves, c_event, c_visit
         ),
+    }
+
+
+def uniform_capacity_policy(
+    survival_curves: np.ndarray,
+    specialty_pools: np.ndarray,
+    day: int = 14,
+    capacity_per_specialty_day: dict = None,
+    c_event: float = C_EVENT,
+    c_visit: float = C_VISIT,
+    horizon: int = HORIZON_DAYS,
+) -> dict:
+    """Uniform-14 with capacity overflow: when day 14 is full, shift to next available day.
+
+    This is the capacity-aware version of uniform_policy — a fairer baseline
+    for comparison against ILP/greedy which also respect capacity.
+    """
+    if capacity_per_specialty_day is None:
+        capacity_per_specialty_day = DEFAULT_SPECIALTY_CAPACITY
+
+    remaining = {}
+    for k in range(N_SPECIALTIES):
+        cap = capacity_per_specialty_day.get(k, 0)
+        remaining[k] = np.full(horizon, cap, dtype=int)
+
+    n = survival_curves.shape[0]
+    assignments = {}
+    overflow_count = 0
+
+    for i in range(n):
+        k = int(specialty_pools[i])
+        assigned = False
+        # Try preferred day first, then search outward
+        for offset in range(horizon):
+            for candidate in [day - 1 + offset, day - 1 - offset]:
+                if 0 <= candidate < horizon and remaining[k][candidate] > 0:
+                    assignments[i] = candidate + 1
+                    remaining[k][candidate] -= 1
+                    assigned = True
+                    break
+            if assigned:
+                break
+        if not assigned:
+            # Capacity exhausted — assign to preferred day but flag as overflow
+            assignments[i] = day
+            overflow_count += 1
+
+    status = "Feasible (capacity-aware)"
+    if overflow_count > 0:
+        status = f"Infeasible ({overflow_count} overflow assignments)"
+
+    return {
+        "assignments": assignments,
+        "status": status,
+        "total_expected_cost": _compute_total_cost(
+            assignments, survival_curves, c_event, c_visit
+        ),
+        "overflow_count": overflow_count,
+    }
+
+
+def guideline_capacity_policy(
+    survival_curves: np.ndarray,
+    specialty_pools: np.ndarray,
+    is_heart_failure: np.ndarray = None,
+    hf_day: int = 14,
+    default_day: int = 28,
+    capacity_per_specialty_day: dict = None,
+    c_event: float = C_EVENT,
+    c_visit: float = C_VISIT,
+    horizon: int = HORIZON_DAYS,
+) -> dict:
+    """Guideline policy with capacity overflow: HF→14, others→28, shift when full.
+
+    Capacity-aware version of guideline_policy.
+    """
+    if capacity_per_specialty_day is None:
+        capacity_per_specialty_day = DEFAULT_SPECIALTY_CAPACITY
+
+    n = survival_curves.shape[0]
+    if is_heart_failure is None:
+        is_heart_failure = np.zeros(n, dtype=bool)
+
+    remaining = {}
+    for k in range(N_SPECIALTIES):
+        cap = capacity_per_specialty_day.get(k, 0)
+        remaining[k] = np.full(horizon, cap, dtype=int)
+
+    assignments = {}
+    overflow_count = 0
+
+    for i in range(n):
+        k = int(specialty_pools[i])
+        preferred = hf_day if is_heart_failure[i] else default_day
+        assigned = False
+        for offset in range(horizon):
+            for candidate in [preferred - 1 + offset, preferred - 1 - offset]:
+                if 0 <= candidate < horizon and remaining[k][candidate] > 0:
+                    assignments[i] = candidate + 1
+                    remaining[k][candidate] -= 1
+                    assigned = True
+                    break
+            if assigned:
+                break
+        if not assigned:
+            assignments[i] = preferred
+            overflow_count += 1
+
+    status = "Feasible (capacity-aware)"
+    if overflow_count > 0:
+        status = f"Infeasible ({overflow_count} overflow assignments)"
+
+    return {
+        "assignments": assignments,
+        "status": status,
+        "total_expected_cost": _compute_total_cost(
+            assignments, survival_curves, c_event, c_visit
+        ),
+        "overflow_count": overflow_count,
     }
 
 
