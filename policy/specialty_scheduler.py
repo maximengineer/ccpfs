@@ -155,6 +155,7 @@ def schedule_greedy_specialty(
     specialty_pools: np.ndarray,
     capacity_per_specialty_day: Optional[dict] = None,
     c_event: float = C_EVENT,
+    c_visit: float = C_VISIT,
     horizon: int = HORIZON_DAYS,
 ) -> dict:
     """Greedy heuristic with per-specialty capacity constraints.
@@ -183,6 +184,7 @@ def schedule_greedy_specialty(
     # Process each specialty pool independently
     assignments = {}
     total_risk_cost = 0.0
+    overflow_count = 0
 
     for k in range(N_SPECIALTIES):
         members = np.where(specialty_pools == k)[0]
@@ -207,15 +209,24 @@ def schedule_greedy_specialty(
                 assignments[int(i)] = best_day + 1
                 remaining[k][best_day] -= 1
                 total_risk_cost += best_cost
+            else:
+                # Overflow: pool capacity exhausted — assign to least-cost day
+                risk_row = risks[i]
+                if np.all(np.isnan(risk_row)):
+                    risk_row = np.zeros_like(risk_row)
+                fallback_day = int(np.nanargmin(risk_row)) + 1
+                assignments[int(i)] = fallback_day
+                total_risk_cost += c_event * risks[i, fallback_day - 1]
+                overflow_count += 1
 
-    feasible = len(assignments) == n_patients
-    status = "Feasible" if feasible else "Infeasible"
+    feasible = overflow_count == 0
+    status = "Feasible" if feasible else f"Feasible (overflow={overflow_count})"
 
     utilisation = _compute_utilisation(
         assignments, specialty_pools, capacity_per_specialty_day, horizon
     )
 
-    total_cost = total_risk_cost + len(assignments) * C_VISIT
+    total_cost = total_risk_cost + len(assignments) * c_visit
 
     return {
         "assignments": assignments,
