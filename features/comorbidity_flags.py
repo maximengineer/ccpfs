@@ -6,12 +6,20 @@ Extract binary comorbidity indicators from ICD diagnosis codes.
 
 # (ICD-10 prefixes, ICD-9 prefixes) for each comorbidity
 COMORBIDITY_PREFIXES = {
+    # Original 6
     "has_heart_failure": (["I50"], ["428"]),
     "has_diabetes": (["E10", "E11"], ["250"]),
     "has_ckd": (["N18"], ["585"]),
     "has_copd": (["J44"], ["496"]),
     "has_hypertension": (["I10"], ["401"]),
     "has_afib": (["I48"], ["427"]),
+    # New 6 — high-impact for readmission
+    "has_liver_disease": (["K70", "K71", "K72", "K73", "K74", "K75", "K76"], ["571"]),
+    "has_malignancy": (["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"], ["14", "15", "16", "17", "18", "19", "20"]),
+    "has_depression": (["F32", "F33"], ["296", "311"]),
+    "has_obesity": (["E66"], ["278"]),
+    "has_stroke": (["I63", "I64", "I65", "I66"], ["433", "434", "436"]),
+    "has_acs": (["I21", "I22", "I24"], ["410"]),
 }
 
 
