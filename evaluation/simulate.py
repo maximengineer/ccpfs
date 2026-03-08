@@ -110,7 +110,7 @@ def run_all_policies(
 
     # --- Greedy ---
     greedy_result = schedule_greedy(
-        survival_curves, capacity_per_day, c_event, horizon
+        survival_curves, capacity_per_day, c_event, c_visit, horizon
     )
     results["CCPFS-Greedy"] = evaluate_policy(
         assignments=greedy_result["assignments"],
