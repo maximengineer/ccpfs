@@ -10,6 +10,68 @@ from sklearn.isotonic import IsotonicRegression
 from config import HORIZON_DAYS
 
 
+def _interpolate_calibrated_curve(
+    survival_curves: np.ndarray,
+    calibrated_at: dict,
+    horizon: int,
+) -> np.ndarray:
+    """Interpolate calibrated values at specific horizons to a full curve.
+
+    Parameters
+    ----------
+    survival_curves : np.ndarray, shape (N, horizon+1)
+        Original uncalibrated curves (used for extrapolation ratios).
+    calibrated_at : dict
+        {horizon_day: calibrated_survival_values} for each calibration point.
+    horizon : int
+
+    Returns
+    -------
+    np.ndarray, shape (N, horizon+1) — calibrated, monotone, clipped to [0,1].
+    """
+    cal_times = sorted(calibrated_at.keys())
+    if not cal_times:
+        out = survival_curves.copy()
+        out[:, 0] = 1.0
+        return out
+
+    calibrated_curves = survival_curves.copy()
+    calibrated_curves[:, 0] = 1.0
+
+    for day in range(1, horizon + 1):
+        if day in calibrated_at:
+            calibrated_curves[:, day] = calibrated_at[day]
+        elif day < cal_times[0]:
+            # Before first calibration point: linear interpolation from 1.0
+            alpha = day / cal_times[0]
+            calibrated_curves[:, day] = (
+                (1 - alpha) * 1.0 + alpha * calibrated_at[cal_times[0]]
+            )
+        elif day > cal_times[-1]:
+            # After last calibration point: preserve shape via ratio, clipped
+            denom = np.clip(survival_curves[:, cal_times[-1]], 1e-10, 1.0)
+            ratio = np.clip(survival_curves[:, day] / denom, 0.0, 1.0)
+            calibrated_curves[:, day] = calibrated_at[cal_times[-1]] * ratio
+        else:
+            # Between two calibration points: linear interpolation
+            t_lo = max(t for t in cal_times if t <= day)
+            t_hi = min(t for t in cal_times if t >= day)
+            if t_lo == t_hi:
+                calibrated_curves[:, day] = calibrated_at[t_lo]
+            else:
+                alpha = (day - t_lo) / (t_hi - t_lo)
+                calibrated_curves[:, day] = (
+                    (1 - alpha) * calibrated_at[t_lo]
+                    + alpha * calibrated_at[t_hi]
+                )
+
+    # Enforce monotonicity and bounds
+    calibrated_curves = np.minimum.accumulate(calibrated_curves, axis=1)
+    calibrated_curves = np.clip(calibrated_curves, 0.0, 1.0)
+
+    return calibrated_curves
+
+
 def calibrate_curves(
     survival_curves: np.ndarray,
     event_indicators: np.ndarray,
@@ -63,47 +125,9 @@ def calibrate_curves(
         calibrated_risk = iso.predict(predicted_risk)
         calibrated_at[t] = 1.0 - calibrated_risk  # Back to survival probability
 
-    # Interpolate calibrated values to full curve
-    calibrated_curves = survival_curves.copy()
-    calibrated_curves[:, 0] = 1.0
-
-    # Sort horizons
-    cal_times = sorted(calibrated_at.keys())
-    if not cal_times:
-        return calibrated_curves, calibrators
-
-    for day in range(1, horizon + 1):
-        if day in calibrated_at:
-            calibrated_curves[:, day] = calibrated_at[day]
-        elif day < cal_times[0]:
-            # Before first calibration point: linear interpolation from 1.0
-            alpha = day / cal_times[0]
-            calibrated_curves[:, day] = (
-                (1 - alpha) * 1.0 + alpha * calibrated_at[cal_times[0]]
-            )
-        elif day > cal_times[-1]:
-            # After last calibration point: use last calibrated value ratio
-            ratio = survival_curves[:, day] / np.clip(
-                survival_curves[:, cal_times[-1]], 1e-10, 1.0
-            )
-            calibrated_curves[:, day] = calibrated_at[cal_times[-1]] * ratio
-        else:
-            # Between two calibration points: linear interpolation
-            t_lo = max(t for t in cal_times if t <= day)
-            t_hi = min(t for t in cal_times if t >= day)
-            if t_lo == t_hi:
-                calibrated_curves[:, day] = calibrated_at[t_lo]
-            else:
-                alpha = (day - t_lo) / (t_hi - t_lo)
-                calibrated_curves[:, day] = (
-                    (1 - alpha) * calibrated_at[t_lo]
-                    + alpha * calibrated_at[t_hi]
-                )
-
-    # Enforce monotonicity and bounds
-    calibrated_curves = np.minimum.accumulate(calibrated_curves, axis=1)
-    calibrated_curves = np.clip(calibrated_curves, 0.0, 1.0)
-
+    calibrated_curves = _interpolate_calibrated_curve(
+        survival_curves, calibrated_at, horizon
+    )
     return calibrated_curves, calibrators
 
 
@@ -125,39 +149,4 @@ def apply_calibration(
         calibrated_risk = calibrators[t].predict(predicted_risk)
         calibrated_at[t] = 1.0 - calibrated_risk
 
-    calibrated_curves = survival_curves.copy()
-    calibrated_curves[:, 0] = 1.0
-
-    cal_times = sorted(calibrated_at.keys())
-    if not cal_times:
-        return calibrated_curves
-
-    for day in range(1, horizon + 1):
-        if day in calibrated_at:
-            calibrated_curves[:, day] = calibrated_at[day]
-        elif day < cal_times[0]:
-            alpha = day / cal_times[0]
-            calibrated_curves[:, day] = (
-                (1 - alpha) * 1.0 + alpha * calibrated_at[cal_times[0]]
-            )
-        elif day > cal_times[-1]:
-            ratio = survival_curves[:, day] / np.clip(
-                survival_curves[:, cal_times[-1]], 1e-10, 1.0
-            )
-            calibrated_curves[:, day] = calibrated_at[cal_times[-1]] * ratio
-        else:
-            t_lo = max(t for t in cal_times if t <= day)
-            t_hi = min(t for t in cal_times if t >= day)
-            if t_lo == t_hi:
-                calibrated_curves[:, day] = calibrated_at[t_lo]
-            else:
-                alpha = (day - t_lo) / (t_hi - t_lo)
-                calibrated_curves[:, day] = (
-                    (1 - alpha) * calibrated_at[t_lo]
-                    + alpha * calibrated_at[t_hi]
-                )
-
-    calibrated_curves = np.minimum.accumulate(calibrated_curves, axis=1)
-    calibrated_curves = np.clip(calibrated_curves, 0.0, 1.0)
-
-    return calibrated_curves
+    return _interpolate_calibrated_curve(survival_curves, calibrated_at, horizon)
