@@ -9,7 +9,7 @@ import numpy as np
 from sksurv.ensemble import GradientBoostingSurvivalAnalysis
 
 from config import HORIZON_DAYS, N_BOOTSTRAP, RANDOM_SEED
-from models.classical.train_gbm import extract_survival_curves, make_structured_target
+from models.classical.train_gbm import extract_survival_curves
 
 
 def bootstrap_survival_curves(
