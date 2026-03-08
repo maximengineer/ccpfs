@@ -97,7 +97,8 @@ def compute_calibration_data(
     """Compute calibration data for reliability diagrams.
 
     For each horizon t, bins patients by predicted P(event by t) = 1 - S(t),
-    then compares to observed event rate via Kaplan-Meier in each bin.
+    then compares to observed event rate in each bin.
+    Subjects censored before t are excluded (only observable outcomes counted).
 
     Parameters
     ----------
@@ -139,14 +140,12 @@ def compute_calibration_data(
             bin_pred[b] = predicted_risk[mask].mean()
             bin_count[b] = mask.sum()
 
-            # Observed: fraction who had event by time t
-            # (accounting for censoring: only count those with time <= t)
-            events_by_t = event_indicators[mask] & (time_to_event[mask] <= t)
-            censored_after_t = time_to_event[mask] > t
-            # Denominator: events + those still at risk at t
-            denom = events_by_t.sum() + censored_after_t.sum()
-            if denom > 0:
-                bin_obs[b] = events_by_t.sum() / denom
+            # Observed event rate: exclude subjects censored before t
+            # (they have unknown outcome at t, so can't inform calibration)
+            observable = event_indicators[mask] | (time_to_event[mask] > t)
+            if observable.sum() > 0:
+                events_by_t = event_indicators[mask][observable] & (time_to_event[mask][observable] <= t)
+                bin_obs[b] = events_by_t.sum() / observable.sum()
             else:
                 bin_obs[b] = float("nan")
 
@@ -172,9 +171,11 @@ def evaluate_survival_model(
 
     Returns dict with all metrics.
     """
-    # Risk score for C-index: 1 - S(median_horizon)
-    median_t = survival_curves.shape[1] // 2
-    risk_scores = 1.0 - survival_curves[:, median_t]
+    # Risk score for C-index: use negative area under survival curve
+    # (integral captures full trajectory, not just single timepoint)
+    horizon = survival_curves.shape[1] - 1
+    times = np.arange(0, horizon + 1, dtype=float)
+    risk_scores = -np.trapezoid(survival_curves, times, axis=1)
 
     ci = compute_cindex(event_indicators, time_to_event, risk_scores)
     ibs = compute_ibs(y_train_structured, y_test_structured, survival_curves)
