@@ -75,6 +75,7 @@ DEFAULT_SPECIALTY_CAPACITY = {
 # Target labs (MIMIC-IV labevents itemids)
 # ---------------------------------------------------------------------------
 TARGET_LABS = {
+    # --- Original 7 labs ---
     "creatinine": "50912",
     "bun": "51006",
     "sodium": "50983",
@@ -82,6 +83,29 @@ TARGET_LABS = {
     "hemoglobin": "51222",
     "wbc": "51301",
     "bnp": "50963",
+    # --- Additional high-impact labs ---
+    "albumin": "50862",
+    "lactate": "50813",
+    "glucose": "50931",
+    "troponin_t": "50911",
+    "ast": "50878",
+    "alt": "50861",
+    "bilirubin": "50885",
+    "inr": "51237",
+    "bicarbonate": "50882",
+    "calcium": "50893",
+    "magnesium": "50960",
+    "phosphate": "50970",
+    # --- Vital signs (chartevents itemids stored as LAB// in MEDS) ---
+    "heart_rate": "220045",
+    "sbp_arterial": "220050",
+    "dbp_arterial": "220051",
+    "sbp_noninvasive": "220179",
+    "dbp_noninvasive": "220180",
+    "respiratory_rate": "220210",
+    "spo2": "220277",
+    "temperature_f": "223761",
+    "temperature_c": "223762",
 }
 
 # ---------------------------------------------------------------------------
@@ -94,9 +118,20 @@ RANDOM_SEED = 42
 N_BOOTSTRAP = 20            # For uncertainty estimation
 
 GBM_PARAM_GRID = {
-    "n_estimators": [200, 500],
-    "max_depth": [3, 5],
-    "learning_rate": [0.05, 0.1],
-    "min_samples_leaf": [20, 50],
-    "subsample": [0.8],
+    "n_estimators": [500, 1000],
+    "max_depth": [3, 5, 7],
+    "learning_rate": [0.01, 0.05, 0.1],
+    "min_samples_leaf": [10, 20, 50],
+    "subsample": [0.6, 0.8, 1.0],
+    "max_features": [None, "sqrt"],
+}
+
+# Focused grid for fast iteration (best region from initial search)
+GBM_PARAM_GRID_FOCUSED = {
+    "n_estimators": [500, 1000, 1500],
+    "max_depth": [5, 7],
+    "learning_rate": [0.01, 0.05, 0.1],
+    "min_samples_leaf": [10, 20],
+    "subsample": [0.6, 0.8],
+    "max_features": [None, "sqrt"],
 }
