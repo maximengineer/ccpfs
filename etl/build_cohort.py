@@ -100,6 +100,19 @@ def build_cohort(
         how="left",
     )
 
+    # Validate no patient appears in multiple splits (data leakage check)
+    splits_per_subject = (
+        cohort.select("subject_id", "data_split")
+        .unique()
+        .group_by("subject_id")
+        .agg(pl.col("data_split").n_unique().alias("n_splits"))
+        .filter(pl.col("n_splits") > 1)
+    )
+    if len(splits_per_subject) > 0:
+        raise ValueError(
+            f"Data leakage: {len(splits_per_subject)} subjects appear in multiple splits"
+        )
+
     if verbose:
         n = len(cohort)
         n_events = cohort["event_indicator"].sum()
