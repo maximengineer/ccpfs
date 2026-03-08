@@ -2,38 +2,23 @@
 
 An optimisation framework that uses patient-level survival predictions to schedule post-discharge follow-up appointments under clinic capacity constraints, minimising adverse events while respecting resource limits.
 
-**Validated on MIMIC-IV v3.1** - 275,022 discharge episodes from 137,054 patients, achieving a 33.4% cost reduction over standard uniform scheduling.
+**Validated on MIMIC-IV v3.1** - 275,022 discharge episodes from 137,054 patients.
 
 ## Problem
 
 After hospital discharge, patients need follow-up appointments. Current practice uses fixed schedules (e.g., "everyone at 14 days") that ignore individual risk profiles and clinic capacity. High-risk patients may wait too long; low-risk patients consume scarce slots unnecessarily.
 
 CCPFS solves this by:
-1. **Predicting** each patient's 30-day readmission risk curve using gradient-boosted survival analysis
-2. **Optimising** appointment timing via Integer Linear Programming (ILP) to minimise total expected cost under per-specialty daily capacity constraints
+1. **Predicting** each patient's 30-day readmission risk curve S(t) — the framework is model-agnostic and accepts curves from any survival model (GBM, Cox PH, RSF, MOTOR, or custom)
+2. **Optimising** appointment timing via capacity-constrained assignment to minimise total expected cost under per-specialty daily limits
 3. **Evaluating** the policy against clinical baselines using retrospective simulation on real EHR data
-
-## Key Results
-
-Evaluated on 27,641 held-out test patients from MIMIC-IV across 8 scheduling policies:
-
-| Policy | Cost/patient | vs Uniform-14 |
-|--------|-------------|----------------|
-| Uniform-14 (baseline) | €1,433 | - |
-| Guideline (ACC/AHA) | €2,025 | +41.3% |
-| Risk-Bucket | €1,429 | -0.3% |
-| **CCPFS ILP (specialty)** | **€954** | **-33.4%** |
-| CCPFS ILP (global) | €1,036 | -27.7% |
-| CCPFS Greedy (global) | €1,037 | -27.6% |
-
-The ILP with per-specialty capacity constraints (cardiology, neurology, surgery, general medicine) achieves the lowest cost while respecting realistic clinic resource limits.
 
 ## Project Structure
 
 ```
 scheduling_follow_up/
 ├── config.py                       # Central configuration (costs, horizons, paths)
-├── run_pipeline.py                 # End-to-end pipeline orchestrator
+├── run_pipeline.py                 # Step-based pipeline orchestrator
 ├── requirements.txt                # Python dependencies
 ├── PLAN.md                         # Full implementation plan and design decisions
 │
@@ -41,14 +26,16 @@ scheduling_follow_up/
 │   └── build_cohort.py             # MEDS → discharge cohort (275K episodes)
 │
 ├── features/                       # Feature engineering
-│   ├── extract_features.py         # 47-feature extraction pipeline
-│   ├── lab_aggregates.py           # Lab value aggregation (7 labs × last/max/min)
-│   └── comorbidity_flags.py        # ICD-10 comorbidity flag extraction
+│   ├── extract_features.py         # Base feature extraction pipeline
+│   ├── derive_features.py          # Derived features (ranges, ratios, clinical flags)
+│   ├── lab_aggregates.py           # Lab/vital aggregation (28 measurements × last/max/min)
+│   └── comorbidity_flags.py        # ICD-10 comorbidity flag extraction (12 conditions)
 │
 ├── models/                         # Survival prediction
 │   ├── classical/
-│   │   ├── train_gbm.py            # Gradient-boosted survival analysis (C-index 0.695)
-│   │   └── train_cox.py            # Cox PH baseline (C-index 0.688)
+│   │   ├── train_gbm.py            # Gradient-boosted survival analysis
+│   │   ├── train_cox.py            # Cox PH baseline (with feature scaling)
+│   │   └── train_rsf.py            # Random Survival Forest
 │   ├── evaluate_model.py           # C-index, IBS, ECE evaluation
 │   ├── calibrate.py                # Isotonic regression calibration
 │   └── uncertainty.py              # Bootstrap uncertainty estimation
@@ -56,6 +43,7 @@ scheduling_follow_up/
 ├── policy/                         # Scheduling algorithms
 │   ├── cost_function.py            # Expected cost C(d) = C_EVENT·(1-S(d)) + C_VISIT
 │   ├── ilp_scheduler.py            # Exact ILP solver (PuLP/CBC)
+│   ├── mincost_solver.py           # Min-cost assignment (scipy, handles full cohort)
 │   ├── greedy_scheduler.py         # Fast heuristic scheduler
 │   ├── specialty_scheduler.py      # Per-specialty capacity ILP + greedy
 │   ├── baselines.py                # Uniform, risk-bucket, guideline, unconstrained
@@ -71,11 +59,17 @@ scheduling_follow_up/
 │   └── test_policy.py
 │
 ├── notebooks/                      # Jupyter demonstrations
-│   └── 01_pipeline_demo.ipynb      # Pipeline demo with visualisations
+│   └── 01_pipeline_demo.ipynb
 │
 └── data/                           # Gitignored - restricted MIMIC-IV data
     ├── meds/                       # MEDS-format MIMIC-IV (364K patients, 366 shards)
     └── processed/                  # Cohort, features, models, results
+        ├── cohort.parquet           # Output of --step cohort
+        ├── features.npz             # Output of --step features
+        ├── curves_test.npz          # Output of --step train / calibrate
+        ├── models_info.json         # Model metrics and params
+        ├── scheduling_results.npz   # Output of --step schedule
+        └── pipeline_results.json    # Output of --step report
 ```
 
 ## Quick Start
@@ -88,41 +82,101 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run tests (scheduling framework)
+# Run tests
 pytest tests/ -v
+```
 
-# Run full pipeline (requires MIMIC-IV MEDS data in data/meds/)
+### Running the Pipeline (Step by Step)
+
+Each step saves its output to `data/processed/` so subsequent steps can run independently. This makes debugging and iteration much faster.
+
+```bash
+# Full pipeline (all steps, all models)
 python run_pipeline.py
 
-# Run with options
-python run_pipeline.py --skip-cohort --skip-features    # reuse cached data
-python run_pipeline.py --train-subsample 30000           # limit training size
-python run_pipeline.py --fast-grid                       # reduced hyperparameter search
+# Run individual steps
+python run_pipeline.py --step cohort              # Build cohort → cohort.parquet
+python run_pipeline.py --step features            # Extract features → features.npz
+python run_pipeline.py --step train --model gbm   # Train GBM only → curves_test.npz
+python run_pipeline.py --step calibrate           # Calibrate curves → curves_test.npz (updated)
+python run_pipeline.py --step schedule            # Run policies → scheduling_results.npz
+python run_pipeline.py --step report              # Print results → pipeline_results.json
+
+# Combine steps
+python run_pipeline.py --step train,calibrate,schedule,report --model gbm
+
+# Speed options
+python run_pipeline.py --step train --model gbm --fast-grid          # 4 combos vs 324
+python run_pipeline.py --step train --model gbm --train-subsample 50000
+python run_pipeline.py --max-patients 5000 --step train,schedule     # Small test run
+```
+
+### Model Selection
+
+Use `--model` to choose which survival model(s) to train and evaluate:
+
+```bash
+python run_pipeline.py --step train --model gbm        # GBM only
+python run_pipeline.py --step train --model cox         # Cox PH only
+python run_pipeline.py --step train --model rsf         # Random Survival Forest only
+python run_pipeline.py --step train --model gbm,cox     # GBM + Cox
+python run_pipeline.py --step train --model all         # All three (default)
+```
+
+The best model (by C-index on validation set) is automatically selected for scheduling. Curves are saved to `curves_test.npz` so the calibrate/schedule/report steps can run independently later.
+
+### Using Your Own Model (Model-Agnostic Interface)
+
+The scheduling framework accepts survival curves from **any** model. Save your curves as a `.npz` file:
+
+```bash
+# Use pre-computed survival curves from any external model
+python run_pipeline.py --survival-curves path/to/curves.npz --step schedule,report
+```
+
+The `.npz` file must contain:
+- `curves`: np.ndarray of shape `(N, 31)` — survival probabilities S(t) for t=0..30
+- `model_name`: str (optional) — name for reporting (e.g., "MOTOR")
+
+```python
+# Example: generating curves from MOTOR foundation model
+import numpy as np
+
+# ... fine-tune MOTOR on MIMIC-IV, then:
+curves = motor_model.predict_survival(cohort, times=range(31))  # (N, 31)
+np.savez("motor_curves.npz", curves=curves, model_name="MOTOR")
+
+# Then schedule:
+# python run_pipeline.py --survival-curves motor_curves.npz --step schedule,report
 ```
 
 ## How It Works
 
 ### 1. Cohort Building
 
-Extracts eligible discharge episodes from MIMIC-IV in MEDS format via streaming shard processing (one shard at a time, ~50 MB projected). Filters for adults discharged home with LOS >= 1 day. Assigns each episode to one of four specialty pools based on admitting service and ICD-10 diagnosis codes. Computes 30-day readmission as the outcome.
+Extracts eligible discharge episodes from MIMIC-IV in MEDS format via streaming shard processing. Filters for adults discharged home with LOS >= 1 day. Assigns each episode to one of four specialty pools based on ICD-10 diagnosis codes. Computes 30-day readmission as the outcome.
 
 ### 2. Feature Engineering
 
-Extracts 47 features in 5 groups:
-- **Static** (8): age, gender, insurance, LOS, admission type, ED origin
-- **Comorbidity** (8): HF, diabetes, CKD, COPD, hypertension, AFib flags + complexity counts
-- **Labs** (28): 7 labs (creatinine, BUN, sodium, potassium, Hgb, WBC, BNP) × last/max/min + missingness indicators
+Extracts ~137 base features in 5 groups, then generates ~40 derived clinical features:
+
+**Base features:**
+- **Static** (5): age, gender, LOS, admission type, ED origin
+- **Comorbidity** (14): 12 condition flags (HF, diabetes, CKD, COPD, hypertension, AFib, liver disease, malignancy, depression, obesity, stroke, ACS) + diagnosis counts
+- **Labs & Vitals** (112): 28 measurements (7 core labs + 12 additional labs + 9 vital signs) × last/max/min + missingness indicators
 - **Prior utilisation** (3): prior admissions count, 365-day count, days since last discharge
 - **Procedures/ICU** (3): medication count, procedure count, ICU stay flag
 
+**Derived features (~40):**
+- Lab instability ranges, BUN/creatinine ratio
+- Clinical threshold flags: tachycardia, hypotension, tachypnea, hypoxemia, elevated troponin/lactate/INR, hypoalbuminemia, anemia, renal impairment
+- Comorbidity burden score, log-transforms for skewed counts
+- Interaction features: age × HF, prior admissions × LOS, emergency × ICU
+- Discharge acuity composite
+
 ### 3. Survival Prediction
 
-Gradient-Boosted Survival Analysis (scikit-survival) trained on 30,000 episodes. Outputs patient-specific survival curves S_i(t) for t = 0..30 days.
-
-| Model | C-index | IBS |
-|-------|---------|-----|
-| GBSA | 0.695 | 0.099 |
-| Cox PH | 0.688 | 0.100 |
+Three survival models compared. Best model selected by C-index on validation set. Outputs patient-specific survival curves S_i(t) for t = 0..30 days. Cox PH uses StandardScaler (fitted on training data only). Isotonic regression calibration is applied on the validation set before scheduling.
 
 ### 4. Capacity-Constrained Scheduling
 
@@ -134,9 +188,7 @@ Cost_i(d) = C_EVENT × (1 - S_i(d)) + C_VISIT
 
 where C_EVENT = €10,000 (adverse event cost) and C_VISIT = €150 (appointment cost).
 
-The ILP assigns each patient to exactly one day, minimising total expected cost subject to:
-- Each patient is seen exactly once within the 30-day horizon
-- No specialty pool exceeds its daily capacity
+Two exact solvers: ILP (PuLP/CBC) for small cohorts, and min-cost assignment (scipy `linear_sum_assignment`) for the full cohort without batching.
 
 **Specialty pool capacity** (base rates for ~500-bed hospital):
 
@@ -152,24 +204,21 @@ The ILP assigns each patient to exactly one day, minimising total expected cost 
 
 | Policy | Description |
 |--------|-------------|
-| Uniform-7/14 | Everyone at day 7 or 14 |
+| Uniform-14 | Everyone at day 14 |
 | Risk-Bucket | High risk → day 7, Medium → day 14, Low → day 30 |
 | Guideline (ACC/AHA) | Heart failure → day 14, Others → day 28 |
-| Unconstrained | Each patient at their individual cost-optimal day (ignores capacity) |
-
-## Hypotheses
-
-- **H1**: Risk-optimised allocation under capacity constraints reduces expected cost compared to fixed-schedule and guideline policies - **Confirmed** (33.4% reduction vs uniform)
-- **H2**: Coarse risk stratification provides negligible improvement over uniform scheduling - **Confirmed** (0.3% reduction)
-- **H3**: The greedy heuristic achieves near-optimal cost reduction compared to the exact ILP - **Confirmed** (>99% of ILP's cost reduction)
+| Unconstrained | Each patient at individual cost-optimal day (ignores capacity) |
+| Uniform-14 (capacity) | Day 14 with overflow to nearest available (capacity-aware) |
+| Guideline (capacity) | Guideline with overflow handling (capacity-aware) |
 
 ## Technology
 
 - **Python 3.12**
-- **NumPy / SciPy** - numerical computation
+- **NumPy / SciPy** - numerical computation, min-cost assignment solver
 - **PuLP** - ILP formulation and CBC solver
-- **scikit-survival** - gradient-boosted survival analysis
+- **scikit-survival** - gradient-boosted survival analysis, Random Survival Forest
 - **lifelines** - Cox proportional hazards
+- **scikit-learn** - StandardScaler, grid search utilities, isotonic regression
 - **Polars / PyArrow** - streaming data processing
 - **matplotlib / seaborn** - visualisation
 - **pytest** - test suite (24 tests passing)
@@ -180,18 +229,16 @@ The ILP assigns each patient to exactly one day, minimising total expected cost 
 
 ### Access Requirements
 
-This project uses **MIMIC-IV v3.1** converted to **MEDS format** (Medical Event Data Standard). To reproduce the pipeline:
+This project uses **MIMIC-IV v3.1** converted to **MEDS format**. To reproduce:
 
 1. Complete the [CITI training](https://physionet.org/about/citi-course/) for human subjects research
 2. Apply for credentialed access to [MIMIC-IV on PhysioNet](https://physionet.org/content/mimiciv/3.1/)
-3. Download the data and convert to MEDS format using [MEDS-ETL](https://github.com/Medical-Event-Data-Standard/meds_etl)
-4. Place the MEDS output in `data/meds/MEDS_cohort/` (or update paths in `config.py`)
-
-The MEDS conversion produces 364,627 patients across 366 parquet shards (~13 GB). The full raw MIMIC-IV data is ~60 GB decompressed.
+3. Download and convert to MEDS format using [MEDS-ETL](https://github.com/Medical-Event-Data-Standard/meds_etl)
+4. Place output in `data/meds/MEDS_cohort/` (or update paths in `config.py`)
 
 ### Cohort Statistics
 
-The cohort extraction yields 275,022 eligible discharge episodes from 137,054 unique patients, with a 20.3% 30-day readmission rate and the following specialty distribution:
+275,022 eligible discharge episodes from 137,054 unique patients, 20.3% 30-day readmission rate:
 
 | Pool | Episodes | Share |
 |------|----------|-------|
