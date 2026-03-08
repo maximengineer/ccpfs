@@ -87,20 +87,10 @@ def extract_survival_curves(
     -------
     np.ndarray of shape (N, horizon+1), monotone non-increasing.
     """
+    from models import extract_curves_from_step_functions
+
     surv_fns = model.predict_survival_function(X)
-    times = np.arange(0, horizon + 1, dtype=float)
-    curves = np.ones((len(surv_fns), horizon + 1))
-
-    for i, fn in enumerate(surv_fns):
-        # StepFunction may not cover all time points; evaluate carefully
-        for t in range(1, horizon + 1):
-            curves[i, t] = fn(float(t))
-
-    # Enforce S(0) = 1.0 and monotonicity
-    curves[:, 0] = 1.0
-    curves = np.minimum.accumulate(curves, axis=1)
-    curves = np.clip(curves, 0.0, 1.0)
-    return curves
+    return extract_curves_from_step_functions(surv_fns, horizon)
 
 
 def save_model(model: GradientBoostingSurvivalAnalysis, path: Path = None):
