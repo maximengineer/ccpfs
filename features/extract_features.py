@@ -226,7 +226,9 @@ def _extract_episode_features(
         elif code.startswith("LAB//"):
             lab_rows.append(evt)
         elif code.startswith("INFUSION_START//") or code.startswith("INFUSION_END//"):
-            med_codes.add(code.split("//")[1] if "//" in code else code)
+            med_name = code.split("//")[1] if "//" in code else code
+            if med_name:
+                med_codes.add(med_name)
         elif code.startswith("PROCEDURE//ICD//"):
             n_procedures += 1
         elif code.startswith("TRANSFER_TO//"):
