@@ -24,7 +24,7 @@ def train_cox(
     y_event_train: np.ndarray,
     y_time_train: np.ndarray,
     feature_names: list[str],
-    penalizer: float = 0.01,
+    penalizer: float = 0.1,
     verbose: bool = True,
 ) -> tuple[CoxPHFitter, StandardScaler]:
     """Train Cox PH model on training data with feature scaling.
@@ -37,7 +37,16 @@ def train_cox(
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_train)
 
-    df = pd.DataFrame(X_scaled, columns=feature_names)
+    # Drop near-zero-variance features (cause NaN gradients in Cox)
+    variances = np.var(X_scaled, axis=0)
+    keep_mask = variances > 1e-6
+    kept_names = [n for n, k in zip(feature_names, keep_mask) if k]
+    dropped = [n for n, k in zip(feature_names, keep_mask) if not k]
+    if dropped and verbose:
+        print(f"  Cox PH: dropping {len(dropped)} near-zero-variance features: {dropped[:10]}{'...' if len(dropped) > 10 else ''}")
+
+    X_filtered = X_scaled[:, keep_mask]
+    df = pd.DataFrame(X_filtered, columns=kept_names)
     df["T"] = y_time_train
     df["E"] = y_event_train.astype(int)
 
@@ -47,6 +56,10 @@ def train_cox(
     if verbose:
         ci = cph.concordance_index_
         print(f"  Cox PH: C-index (train) = {ci:.4f}")
+
+    # Store which features were kept so prediction uses the same subset
+    cph._kept_feature_mask = keep_mask
+    cph._kept_feature_names = kept_names
 
     return cph, scaler
 
@@ -70,6 +83,10 @@ def extract_survival_curves_cox(
     np.ndarray of shape (N, horizon+1), monotone non-increasing.
     """
     X_input = scaler.transform(X) if scaler is not None else X
+    # Apply same feature mask used during training
+    if hasattr(model, '_kept_feature_mask'):
+        X_input = X_input[:, model._kept_feature_mask]
+        feature_names = model._kept_feature_names
     df = pd.DataFrame(X_input, columns=feature_names)
     times = np.arange(0, horizon + 1, dtype=float)
 
