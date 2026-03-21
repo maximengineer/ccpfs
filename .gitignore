@@ -7,6 +7,9 @@ data/
 # Trained models (derived from restricted data)
 models/saved/
 
+# MOTOR pretrained weights (gated HuggingFace model — 800MB)
+motor-t-base/
+
 # =============================================================================
 # Python
 # =============================================================================
