@@ -19,8 +19,8 @@ CCPFS solves this by:
 scheduling_follow_up/
 ├── config.py                       # Central configuration (costs, horizons, paths)
 ├── run_pipeline.py                 # Step-based pipeline orchestrator
+├── parallel_train.py               # Parallel model training (GBM + Cox + RSF concurrently)
 ├── requirements.txt                # Python dependencies
-├── PLAN.md                         # Full implementation plan and design decisions
 │
 ├── etl/                            # Data pipeline
 │   └── build_cohort.py             # MEDS → discharge cohort (275K episodes)
@@ -36,6 +36,13 @@ scheduling_follow_up/
 │   │   ├── train_gbm.py            # Gradient-boosted survival analysis
 │   │   ├── train_cox.py            # Cox PH baseline (with feature scaling)
 │   │   └── train_rsf.py            # Random Survival Forest
+│   ├── motor/
+│   │   ├── extract_motor_float32.py # MOTOR embedding extraction (JAX, CUDA fallbacks)
+│   │   ├── align_embeddings.py      # Align MOTOR embeddings with cohort splits
+│   │   ├── train_on_embeddings.py   # Train GBM on MOTOR embeddings
+│   │   ├── train_motor.py           # End-to-end MOTOR pipeline
+│   │   ├── meds_to_simple_femr.py   # MEDS → simple femr CSV conversion
+│   │   └── build_omop_mapping.py    # MEDS codes → OMOP standard concepts
 │   ├── evaluate_model.py           # C-index, IBS, ECE evaluation
 │   ├── calibrate.py                # Isotonic regression calibration
 │   └── uncertainty.py              # Bootstrap uncertainty estimation
@@ -69,7 +76,14 @@ scheduling_follow_up/
         ├── curves_test.npz          # Output of --step train / calibrate
         ├── models_info.json         # Model metrics and params
         ├── scheduling_results.npz   # Output of --step schedule
-        └── pipeline_results.json    # Output of --step report
+        ├── pipeline_results.json    # Output of --step report
+        └── motor_output/            # MOTOR foundation model results
+            ├── aligned_embeddings.npz  # Train/val/test embeddings (768-dim)
+            ├── motor_curves.npz        # S(t) curves from MOTOR+GBM
+            ├── motor_gbm.joblib        # Trained GBM on PCA embeddings
+            ├── motor_pca.joblib        # PCA transformer (768→64)
+            ├── motor_scaler.joblib     # StandardScaler for embeddings
+            └── motor_result.json       # Metrics and hyperparameters
 ```
 
 ## Quick Start
@@ -158,7 +172,7 @@ Extracts eligible discharge episodes from MIMIC-IV in MEDS format via streaming 
 
 ### 2. Feature Engineering
 
-Extracts ~137 base features in 5 groups, then generates ~40 derived clinical features:
+Extracts ~137 base features in 5 groups, then generates ~55 derived clinical features (192 total after imputation):
 
 **Base features:**
 - **Static** (5): age, gender, LOS, admission type, ED origin
@@ -167,7 +181,7 @@ Extracts ~137 base features in 5 groups, then generates ~40 derived clinical fea
 - **Prior utilisation** (3): prior admissions count, 365-day count, days since last discharge
 - **Procedures/ICU** (3): medication count, procedure count, ICU stay flag
 
-**Derived features (~40):**
+**Derived features (~55):**
 - Lab instability ranges, BUN/creatinine ratio
 - Clinical threshold flags: tachycardia, hypotension, tachypnea, hypoxemia, elevated troponin/lactate/INR, hypoalbuminemia, anemia, renal impairment
 - Comorbidity burden score, log-transforms for skewed counts
@@ -211,6 +225,34 @@ Two exact solvers: ILP (PuLP/CBC) for small cohorts, and min-cost assignment (sc
 | Uniform-14 (capacity) | Day 14 with overflow to nearest available (capacity-aware) |
 | Guideline (capacity) | Guideline with overflow handling (capacity-aware) |
 
+## Results (MIMIC-IV, 27,641 Test Patients)
+
+### Model Performance
+
+| Model | C-index | IBS |
+|-------|---------|-----|
+| **GBM** | **0.706** | **0.097** |
+| Cox PH | 0.702 | 0.098 |
+| RSF | 0.698 | 0.098 |
+| MOTOR+GBM | 0.669 | 0.101 |
+
+The three classical models achieve near-identical discrimination (C-index spread: 0.008), confirming that the scheduling framework's value comes from the optimisation layer, not the specific risk model. GBM selected as best model for scheduling. Isotonic calibration applied at horizons 7, 14, 21, 30 days.
+
+The MOTOR-T-Base foundation model (143M params, pretrained on 2.57M Stanford EHRs) was also evaluated using frozen embeddings reduced to 64 dimensions via PCA (93% variance retained). Its lower performance reflects domain shift (Stanford → MIMIC-IV) and the advantage of purpose-built features for this specific task, while validating the framework's model-agnostic design.
+
+### Scheduling Policy Comparison
+
+| Policy | Capacity | Avg Cost (€) | Catch Rate |
+|--------|:--------:|-----------:|-----------:|
+| Guideline (ACC/AHA) | No | 1,992 | 9.8% |
+| Uniform day 14 | No | 1,422 | 37.3% |
+| Uniform-14 (capacity) | Yes | 1,392 | 38.3% |
+| Greedy (specialty) | Yes | 946 | 61.7% |
+| **MinCost (specialty)** | **Yes** | **759** | **71.0%** |
+| Unconstrained (oracle) | No | 254 | 96.8% |
+
+The optimised specialty scheduler achieves **47% cost reduction** vs uniform-14 and catches **71% of adverse events** before follow-up (vs 37% for uniform). Per-specialty capacity pooling adds 24% improvement over global pooling.
+
 ## Technology
 
 - **Python 3.12**
@@ -238,7 +280,7 @@ This project uses **MIMIC-IV v3.1** converted to **MEDS format**. To reproduce:
 
 ### Cohort Statistics
 
-275,022 eligible discharge episodes from 137,054 unique patients, 20.3% 30-day readmission rate:
+275,022 eligible discharge episodes from 137,054 unique patients, 20.5% 30-day readmission rate:
 
 | Pool | Episodes | Share |
 |------|----------|-------|
