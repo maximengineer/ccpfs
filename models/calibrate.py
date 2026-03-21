@@ -111,8 +111,13 @@ def calibrate_curves(
 
         # Binary label: did event occur by time t?
         # Subjects censored before t are excluded from calibration
-        observable = (event_indicators) | (time_to_event > t)
-        label = (event_indicators & (time_to_event <= t)).astype(float)
+        # NOTE: event_indicators must be bool for correct boolean masking;
+        # int arrays would cause numpy integer indexing instead of masking.
+        # Use >= t (not > t) so patients censored at exactly t are included
+        # as negatives (they survived to t without event).
+        event_bool = event_indicators.astype(bool)
+        observable = event_bool | (time_to_event >= t)
+        label = (event_bool & (time_to_event <= t)).astype(float)
 
         if observable.sum() < 20:
             continue
