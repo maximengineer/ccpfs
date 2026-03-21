@@ -142,7 +142,7 @@ def compute_calibration_data(
 
             # Observed event rate: exclude subjects censored before t
             # (they have unknown outcome at t, so can't inform calibration)
-            observable = event_indicators[mask] | (time_to_event[mask] > t)
+            observable = event_indicators[mask].astype(bool) | (time_to_event[mask] > t)
             if observable.sum() > 0:
                 events_by_t = event_indicators[mask][observable] & (time_to_event[mask][observable] <= t)
                 bin_obs[b] = events_by_t.sum() / observable.sum()
