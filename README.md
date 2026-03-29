@@ -62,6 +62,32 @@ scheduling_follow_up/
 │   ├── simulate.py                 # Run all policies and produce comparison tables
 │   └── sensitivity.py              # Vary capacity, cost ratio, uncertainty, horizon
 │
+├── api/                            # REST API (FastAPI)
+│   ├── main.py                    # App entry point, CORS, lifespan
+│   ├── dependencies.py            # Startup data loader singleton
+│   ├── schemas.py                 # Pydantic request/response models
+│   ├── routers/
+│   │   ├── results.py             # GET /api/results (pre-computed pipeline results)
+│   │   ├── patients.py            # GET /api/patients/{id}/curve
+│   │   └── scheduling.py         # POST /api/schedule (live greedy re-scheduling)
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── dashboard/                      # Interactive dashboard (Plotly Dash)
+│   ├── app.py                     # Dash app entry point (multi-page)
+│   ├── pages/
+│   │   ├── overview.py            # Key metrics + policy comparison charts
+│   │   ├── patient_explorer.py    # Side-by-side S(t) curves + marginal benefit
+│   │   └── interactive_scheduler.py  # Capacity sliders + live greedy scheduling
+│   ├── components/
+│   │   ├── charts.py              # Reusable Plotly figure builders
+│   │   └── layout.py              # Metric cards, section headers
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── docker-compose.yml              # Two-service orchestration (backend + frontend)
+├── .dockerignore                   # Excludes raw data, large models from build context
+│
 ├── tests/                          # pytest suite (24 tests)
 │   └── test_policy.py
 │
@@ -253,8 +279,70 @@ The MOTOR-T-Base foundation model (143M params, pretrained on 2.57M Stanford EHR
 
 The optimised specialty scheduler achieves **47% cost reduction** vs uniform-14 and catches **71% of adverse events** before follow-up (vs 37% for uniform). Per-specialty capacity pooling adds 24% improvement over global pooling.
 
+## Dashboard & API
+
+The framework includes a REST API and interactive dashboard for exploring results and running live scheduling experiments.
+
+### Running with Docker Compose
+
+```bash
+cd scheduling_follow_up
+docker compose up --build
+```
+
+This starts two services:
+- **Dashboard**: http://localhost:3000 - interactive visualisations
+- **API**: http://localhost:8000 - REST endpoints (OpenAPI docs at http://localhost:8000/docs)
+
+Data is volume-mounted read-only from `data/processed/` and `models/saved/` - no patient data is baked into Docker images.
+
+### Running without Docker
+
+```bash
+cd scheduling_follow_up
+
+# Terminal 1: Start API
+PYTHONPATH=. CCPFS_DATA_DIR=data/processed CCPFS_MODEL_DIR=models/saved \
+  uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Start Dashboard
+PYTHONPATH=. CCPFS_API_URL=http://localhost:8000 \
+  python -m dashboard.app
+```
+
+Requires: `pip install fastapi uvicorn dash plotly requests polars`
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Service status, loaded models, patient count |
+| GET | `/api/results` | Pre-computed pipeline results (4 models, 10 policies) |
+| GET | `/api/patients/{index}/curve` | Individual S(t) curve, assignment, specialty, cost |
+| GET | `/api/patients/count` | Total number of test patients |
+| POST | `/api/schedule` | Live greedy re-scheduling with custom capacity |
+
+**Example: re-schedule with custom capacity**
+
+```bash
+curl -X POST http://localhost:8000/api/schedule \
+  -H 'Content-Type: application/json' \
+  -d '{"capacity": {"cardiology": 8, "neurology": 10, "surgery": 15, "general_medicine": 25}}'
+```
+
+Returns assignment distribution, catch rate, cost, and computation time (~200ms).
+
+### Dashboard Pages
+
+1. **Overview** (`/`) - Hero metrics (47% cost reduction, 71% catch rate), policy comparison bar chart with dual-axis cost/catch rate, model comparison (4 architectures)
+
+2. **Patient Explorer** (`/patients`) - Side-by-side survival curves for any two patients. Demonstrates the marginal benefit principle: patients with steeper risk trajectories get earlier appointments even if their absolute risk is lower. Shows risk exposure shading and event markers (caught vs missed).
+
+3. **Interactive Scheduler** (`/scheduler`) - Adjust per-specialty capacity via sliders and re-run the greedy scheduler in real time. Watch how the framework adapts to different operational constraints. Compares live greedy results against the pre-computed optimal MinCost solution.
+
 ## Technology
 
+**Core pipeline:**
 - **Python 3.12**
 - **NumPy / SciPy** - numerical computation, min-cost assignment solver
 - **PuLP** - ILP formulation and CBC solver
@@ -264,6 +352,12 @@ The optimised specialty scheduler achieves **47% cost reduction** vs uniform-14 
 - **Polars / PyArrow** - streaming data processing
 - **matplotlib / seaborn** - visualisation
 - **pytest** - test suite (24 tests passing)
+
+**API & Dashboard:**
+- **FastAPI / Uvicorn** - REST API with auto-generated OpenAPI docs
+- **Plotly Dash** - interactive multi-page dashboard
+- **Plotly** - publication-quality charts (survival curves, bar charts, histograms)
+- **Docker Compose** - two-service orchestration (backend + frontend)
 
 ## Data
 
