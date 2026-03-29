@@ -1,0 +1,39 @@
+# Raw MIMIC-IV data (credentialed, never in images)
+data/raw/
+data/meds/
+data/synthea/
+
+# Large artifacts not needed for serving
+data/processed/motor_output/
+data/processed/parallel_tmp/
+data/processed/features.npz
+data/processed/pipeline_log.txt
+models/saved/rsf_survival.joblib
+models/motor/
+motor-t-base/
+
+# Development and training artifacts (not needed at runtime)
+notebooks/
+tests/
+.venv/
+etl/
+features/
+vocab/
+models/motor/
+parallel_train.py
+run_pipeline.py
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+
+# Plans and docs
+*.md
+PLAN.md
+DASHBOARD_API_PLAN.md
+
+# IDE
+.vscode/
+.idea/
