@@ -17,18 +17,30 @@ SPECIALTY_INDEX = {name: idx for idx, name in enumerate(SPECIALTY_NAMES)}
 VALID_SPECIALTIES = set(SPECIALTY_NAMES)
 
 
-def _scale_capacity(base_capacity: dict[str, int], n_patients: int, horizon: int) -> dict[int, int]:
-    """Scale base capacity rates so total 30-day slots match cohort size.
+def _scale_capacity(
+    base_capacity: dict[str, int],
+    specialty_pools: np.ndarray,
+    horizon: int,
+) -> dict[int, int]:
+    """Scale each specialty's capacity so its 30-day slots match its patient count.
+
+    Each specialty is scaled independently based on how many patients it has,
+    not the total cohort. This prevents overflow when one specialty dominates.
 
     Returns dict keyed by specialty index (matching config convention).
     """
-    base_total = sum(base_capacity.values())
-    needed_per_day = int(np.ceil(n_patients / horizon))
-    scale = max(1.0, needed_per_day / base_total)
-    return {
-        SPECIALTY_INDEX[name]: int(np.ceil(val * scale))
-        for name, val in base_capacity.items()
-    }
+    result = {}
+    for name, base_val in base_capacity.items():
+        idx = SPECIALTY_INDEX[name]
+        n_in_pool = int(np.sum(specialty_pools == idx))
+        if n_in_pool == 0:
+            result[idx] = base_val
+            continue
+        needed_per_day = int(np.ceil(n_in_pool / horizon))
+        # Scale so this specialty has enough slots, using base_val as the minimum
+        scale = max(1.0, needed_per_day / base_val)
+        result[idx] = int(np.ceil(base_val * scale))
+    return result
 
 
 DEFAULT_BASE_CAPACITY = {
@@ -59,7 +71,7 @@ def run_schedule(req: ScheduleRequest):
     horizon = curves.shape[1] - 1
     specialty_pools = store.cohort_test["specialty_pool"].to_numpy()
 
-    scaled_cap = _scale_capacity(merged_capacity, n, horizon)
+    scaled_cap = _scale_capacity(merged_capacity, specialty_pools, horizon)
     result = schedule_greedy_specialty(
         curves, specialty_pools, capacity_per_specialty_day=scaled_cap,
     )
