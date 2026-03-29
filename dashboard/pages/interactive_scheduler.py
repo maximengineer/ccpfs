@@ -15,43 +15,66 @@ API_URL = os.environ.get("CCPFS_API_URL", "http://localhost:8000")
 
 layout = html.Div([
     html.H2("Interactive Scheduler", style={"textAlign": "center", "color": "#1f2937"}),
-    html.P(
-        "Adjust per-specialty daily capacity and re-run the greedy scheduler in real time. "
-        "Watch how the framework adapts to different operational constraints.",
-        style={"textAlign": "center", "color": "#6b7280", "marginBottom": "24px"},
-    ),
+
+    # Explainer
+    html.Div(style={
+        "backgroundColor": "#f0f9ff", "borderRadius": "8px", "padding": "16px",
+        "borderLeft": "4px solid #2563eb", "marginBottom": "24px",
+    }, children=[
+        html.P([
+            html.Strong("What does this page do? "),
+            "This is a live demonstration of the scheduling framework. Use the sliders below to "
+            "simulate different hospital capacity scenarios, then click ",
+            html.Strong("Run Scheduler"),
+            " to re-optimise all 27,641 patient appointments in real time using the greedy heuristic.",
+        ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
+        html.P([
+            html.Strong("What to try: "),
+            "Reduce cardiology capacity to see high-risk cardiac patients pushed to later days, "
+            "increasing cost and lowering catch rate. Or increase capacity across all specialties "
+            "to watch costs drop as more patients can be scheduled earlier. The histogram below "
+            "shows how patients are distributed across the 30-day window.",
+        ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
+        html.P([
+            html.Strong("Greedy vs Optimal: "),
+            "The greedy heuristic runs in under 200ms but achieves about 75% of the optimal "
+            "MinCost solver's cost reduction under specialty constraints. The reference comparison "
+            "at the bottom shows the gap.",
+        ], style={"margin": "0", "color": "#1e3a5f", "fontSize": "14px"}),
+    ]),
 
     # Capacity sliders
-    section_header("Per-Specialty Daily Capacity (base rate)"),
+    section_header("Daily Follow-Up Slots Per Specialty"),
     html.P(
-        "Base rates are scaled proportionally so total 30-day slots match the cohort size. "
-        "For example, with the default cohort, base rate 15 for cardiology scales to ~213 slots/day.",
+        "How many outpatient follow-up appointments can each specialty handle per day? "
+        "These numbers are scaled proportionally so total 30-day capacity matches the cohort size (27,641 patients). "
+        "Reducing slots forces the scheduler to defer more patients to later days.",
         style={"color": "#9ca3af", "fontSize": "13px", "marginBottom": "16px"},
     ),
 
     html.Div(style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px", "marginBottom": "24px"}, children=[
         html.Div([
             html.Label("Cardiology", style={"fontWeight": "bold", "color": "#ef4444"}),
-            dcc.Slider(id="slider-cardiology", min=5, max=40, step=1, value=15,
-                       marks={5: "5", 15: "15", 25: "25", 40: "40"},
+            dcc.Slider(id="slider-cardiology", min=1, max=100, step=1, value=15,
+                       marks={1: "1", 15: "15", 25: "25", 50: "50", 75: "75", 100: "100"},
                        tooltip={"placement": "bottom", "always_visible": True}),
         ]),
         html.Div([
             html.Label("Neurology", style={"fontWeight": "bold", "color": "#8b5cf6"}),
-            dcc.Slider(id="slider-neurology", min=5, max=30, step=1, value=10,
-                       marks={5: "5", 10: "10", 20: "20", 30: "30"},
+            dcc.Slider(id="slider-neurology", min=1, max=100, step=1, value=10,
+                       marks={1: "1", 10: "10", 25: "25", 50: "50", 75: "75", 100: "100"},
                        tooltip={"placement": "bottom", "always_visible": True}),
         ]),
         html.Div([
             html.Label("Surgery", style={"fontWeight": "bold", "color": "#f59e0b"}),
-            dcc.Slider(id="slider-surgery", min=5, max=40, step=1, value=15,
-                       marks={5: "5", 15: "15", 25: "25", 40: "40"},
+            dcc.Slider(id="slider-surgery", min=1, max=100, step=1, value=15,
+                       marks={1: "1", 15: "15", 25: "25", 50: "50", 75: "75", 100: "100"},
                        tooltip={"placement": "bottom", "always_visible": True}),
         ]),
         html.Div([
             html.Label("General Medicine", style={"fontWeight": "bold", "color": "#3b82f6"}),
-            dcc.Slider(id="slider-general", min=10, max=60, step=1, value=25,
-                       marks={10: "10", 25: "25", 40: "40", 60: "60"},
+            dcc.Slider(id="slider-general", min=1, max=100, step=1, value=25,
+                       marks={1: "1", 25: "25", 50: "50", 75: "75", 100: "100"},
                        tooltip={"placement": "bottom", "always_visible": True}),
         ]),
     ]),
@@ -75,7 +98,20 @@ layout = html.Div([
 
     # Day histogram
     section_header("Assignment Distribution"),
-    dcc.Graph(id="schedule-histogram"),
+    dcc.Graph(id="schedule-histogram", figure={
+        "data": [],
+        "layout": {
+            "xaxis": {"title": "Day After Discharge", "range": [0.5, 30.5], "dtick": 5},
+            "yaxis": {"title": "Number of Patients", "range": [0, 100]},
+            "annotations": [{
+                "text": "Click 'Run Scheduler' to see the assignment distribution",
+                "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5,
+                "showarrow": False, "font": {"size": 16, "color": "#9ca3af"},
+            }],
+            "plot_bgcolor": "white",
+            "margin": {"t": 20},
+        },
+    }),
 
     # Comparison note
     html.Div(id="comparison-note", style={
@@ -120,13 +156,14 @@ def run_scheduling(n_clicks, card, neuro, surg, gen):
         metric_card("Avg Cost", f"EUR {m['avg_cost']:,.0f}", f"{m['vs_uniform_pct']:+.1f}% vs uniform",
                      "#16a34a" if m["vs_uniform_pct"] < 0 else "#dc2626"),
         metric_card("Catch Rate", f"{m['catch_rate']:.1f}%", "events caught before follow-up", "#2563eb"),
-        metric_card("EBF Rate", f"{m['ebf_rate']:.1f}%", "events before follow-up", "#d97706"),
+        metric_card("EBF Rate", f"{m['ebf_rate']:.1f}%",
+                     "readmissions that occurred before the scheduled follow-up (lower is better)", "#d97706"),
     ]
 
     fig = day_histogram_figure(
         data["day_histogram"],
         by_specialty=data.get("by_specialty"),
-        title=f"Assignment Distribution (capacity: {card}/{neuro}/{surg}/{gen})",
+        title=f"Assignment Distribution (Card: {card} / Neuro: {neuro} / Surg: {surg} / GenMed: {gen})",
     )
 
     elapsed = f"Computed in {m['elapsed_ms']:.0f}ms"
