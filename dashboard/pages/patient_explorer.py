@@ -26,8 +26,45 @@ def _get_max_patient() -> int:
         return MAX_PATIENT
 
 
+def _initial_pair():
+    mx = _get_max_patient()
+    a = random.randint(0, mx)
+    b = random.randint(0, mx)
+    while b == a:
+        b = random.randint(0, mx)
+    return a, b
+
+
+_default_a, _default_b = _initial_pair()
+
+
 layout = html.Div([
     html.H2("Patient Explorer", style={"textAlign": "center", "color": "#1f2937"}),
+
+    # Explainer
+    html.Div(style={
+        "backgroundColor": "#f0f9ff", "borderRadius": "8px", "padding": "16px",
+        "borderLeft": "4px solid #2563eb", "marginBottom": "24px",
+    }, children=[
+        html.P([
+            html.Strong("What does this page show? "),
+            "Each patient has a unique survival curve S(t) that tracks their probability of "
+            "remaining readmission-free over 30 days. The curve starts at 1.0 (just discharged) "
+            "and decreases as risk accumulates. The ",
+            html.Strong("shaded area"),
+            " represents risk exposure before the follow-up appointment.",
+        ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
+        html.P([
+            html.Strong("Key insight: "),
+            "The framework does not simply schedule the highest-risk patients first. Instead, "
+            "it prioritises patients with the ",
+            html.Em("steepest risk trajectories"),
+            " (largest risk spread between early and late days), because these patients "
+            "benefit most from being seen sooner. Try clicking ",
+            html.Strong("Random Pair"),
+            " to explore different cases.",
+        ], style={"margin": "0", "color": "#1e3a5f", "fontSize": "14px"}),
+    ]),
 
     section_header("Select Patients to Compare"),
     html.P(
@@ -42,13 +79,15 @@ layout = html.Div([
 
     html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "marginBottom": "16px"}, children=[
         html.Div(style={"flex": "1"}, children=[
-            html.Label("Patient A (index):", style={"fontWeight": "bold"}),
-            dcc.Input(id="patient-a-input", type="number", value=42, min=0, max=MAX_PATIENT,
+            html.Label("Patient A:", style={"fontWeight": "bold"}),
+            html.Span(" (1 to 27,641)", style={"color": "#9ca3af", "fontSize": "12px"}),
+            dcc.Input(id="patient-a-input", type="number", value=_default_a, min=0, max=MAX_PATIENT,
                       style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
         ]),
         html.Div(style={"flex": "1"}, children=[
-            html.Label("Patient B (index):", style={"fontWeight": "bold"}),
-            dcc.Input(id="patient-b-input", type="number", value=100, min=0, max=MAX_PATIENT,
+            html.Label("Patient B:", style={"fontWeight": "bold"}),
+            html.Span(" (1 to 27,641)", style={"color": "#9ca3af", "fontSize": "12px"}),
+            dcc.Input(id="patient-b-input", type="number", value=_default_b, min=0, max=MAX_PATIENT,
                       style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
         ]),
         html.Div(style={"paddingTop": "20px"}, children=[
@@ -129,12 +168,38 @@ def update_curves(idx_a, idx_b):
     def make_info(p):
         if not p:
             return "No data"
-        event_str = f"Readmitted day {p['time_to_event']:.0f}" if p["event_indicator"] else "No readmission"
+        if p["event_indicator"]:
+            caught = p["time_to_event"] > p["assigned_day"]
+            event_str = f"Readmitted on day {p['time_to_event']:.0f}"
+            if caught:
+                event_str += f" - follow-up on day {p['assigned_day']} would have occurred first"
+            else:
+                event_str += f" - readmitted before day {p['assigned_day']} follow-up"
+            event_color = "#16a34a" if caught else "#dc2626"
+        else:
+            event_str = "No readmission within 30 days"
+            event_color = "#6b7280"
+        risk_30 = (1 - p["survival_curve"][30]) * 100 if len(p["survival_curve"]) > 30 else 0
+        caught_icon = "✓" if p["event_indicator"] and p["time_to_event"] > p["assigned_day"] else "✗" if p["event_indicator"] else "✓"
+        if not p["event_indicator"]:
+            event_color = "#16a34a"
         return html.Div([
-            html.Span(f"Specialty: {p['specialty'].replace('_', ' ').title()}", style={"marginRight": "16px"}),
-            html.Span(f"Assigned day: {p['assigned_day']}", style={"marginRight": "16px", "fontWeight": "bold"}),
-            html.Span(f"Cost: EUR {p['cost']:,.0f}", style={"marginRight": "16px"}),
-            html.Span(event_str),
+            html.Div(style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "4px 16px", "lineHeight": "1.8"}, children=[
+                html.Div([html.Strong("Specialty: "), p['specialty'].replace('_', ' ').title()]),
+                html.Div([html.Strong("30-day risk: "), f"{risk_30:.1f}%"]),
+                html.Div([html.Strong("Follow-up: "), f"day {p['assigned_day']}"]),
+                html.Div([html.Strong("Cost: "), f"EUR {p['cost']:,.0f}"]),
+            ]),
+            html.Div(style={
+                "marginTop": "8px", "paddingTop": "8px",
+                "borderTop": "1px solid #e5e7eb",
+                "display": "flex", "alignItems": "center", "gap": "8px",
+            }, children=[
+                html.Span(caught_icon, style={
+                    "fontSize": "16px", "fontWeight": "bold", "color": event_color,
+                }),
+                html.Span([html.Strong("Outcome: "), event_str], style={"color": "#1f2937"}),
+            ]),
         ])
 
     fig_a = make_fig(pa)
