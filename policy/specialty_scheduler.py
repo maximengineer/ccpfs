@@ -185,11 +185,17 @@ def schedule_greedy_specialty(
     assignments = {}
     total_risk_cost = 0.0
     overflow_count = 0
+    overflow_patients = set()
+
+    # Track actual usage per (specialty, day) for overflow spreading
+    usage = {k: np.zeros(horizon) for k in range(N_SPECIALTIES)}
 
     for k in range(N_SPECIALTIES):
         members = np.where(specialty_pools == k)[0]
         if len(members) == 0:
             continue
+
+        cap = capacity_per_specialty_day.get(k, 0)
 
         # Sort by urgency within pool
         order = members[np.argsort(-urgencies[members])]
@@ -208,19 +214,21 @@ def schedule_greedy_specialty(
             if best_day is not None:
                 assignments[int(i)] = best_day + 1
                 remaining[k][best_day] -= 1
+                usage[k][best_day] += 1
                 total_risk_cost += best_cost
             else:
-                # Overflow: pool capacity exhausted — assign to least-cost day
-                risk_row = risks[i]
-                if np.all(np.isnan(risk_row)):
-                    risk_row = np.zeros_like(risk_row)
-                fallback_day = int(np.nanargmin(risk_row)) + 1
+                # Overflow: pool capacity exhausted - spread across days
+                # by picking the day with the least over-capacity usage.
+                over_cap = usage[k] - cap
+                fallback_day = int(np.argmin(over_cap)) + 1
                 assignments[int(i)] = fallback_day
+                usage[k][fallback_day - 1] += 1
                 total_risk_cost += c_event * risks[i, fallback_day - 1]
                 overflow_count += 1
+                overflow_patients.add(int(i))
 
     feasible = overflow_count == 0
-    status = "Feasible" if feasible else f"Feasible (overflow={overflow_count})"
+    status = "Feasible" if feasible else f"Overflow ({overflow_count} patients beyond capacity)"
 
     utilisation = _compute_utilisation(
         assignments, specialty_pools, capacity_per_specialty_day, horizon
@@ -230,6 +238,7 @@ def schedule_greedy_specialty(
 
     return {
         "assignments": assignments,
+        "overflow_patients": overflow_patients,
         "status": status,
         "total_expected_cost": total_cost,
         "utilisation": utilisation,
