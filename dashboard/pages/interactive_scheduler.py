@@ -266,12 +266,15 @@ def run_scheduling(n_clicks, cap_c, cap_n, cap_s, cap_g, dem_c, dem_n, dem_s, de
         capacity_note += f", {n_overflow:,} deferred ({n_overflow/n_total*100:.0f}%)"
 
     metrics = [
-        metric_card("Avg Cost", f"EUR {m['avg_cost']:,.0f}",
-                     f"{m['vs_uniform14_pct']:+.1f}% vs fixed day-14 for all",
-                     "#16a34a" if m["vs_uniform14_pct"] < 0 else "#dc2626"),
-        metric_card("vs Day-30", f"{m['vs_uniform30_pct']:+.1f}%",
-                     "vs fixed day-30 for all",
-                     "#16a34a" if m["vs_uniform30_pct"] < 0 else "#dc2626"),
+        metric_card("Fixed Day-30", f"EUR {m['uniform30_cost']:,.0f}",
+                     "everyone at day 30",
+                     "#dc2626"),
+        metric_card("Fixed Day-14", f"EUR {m['uniform14_cost']:,.0f}",
+                     "everyone at day 14",
+                     "#d97706"),
+        metric_card("Optimised", f"EUR {m['avg_cost']:,.0f}",
+                     f"{abs(m['vs_uniform14_pct']):.1f}% less than day-14",
+                     "#16a34a"),
         metric_card("Catch Rate", f"{m['catch_rate']:.1f}%", "events caught before follow-up", "#2563eb"),
         metric_card("Patients", f"{n_total:,}", capacity_note,
                      "#16a34a" if n_overflow == 0 else "#d97706"),
