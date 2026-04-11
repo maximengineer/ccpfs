@@ -69,7 +69,7 @@ scheduling_follow_up/
 │   ├── routers/
 │   │   ├── results.py             # GET /api/results (pre-computed pipeline results)
 │   │   ├── patients.py            # GET /api/patients/{id}/curve
-│   │   └── scheduling.py         # POST /api/schedule (live greedy re-scheduling)
+│   │   └── scheduling.py         # POST /api/schedule (capacity + demand simulation)
 │   ├── Dockerfile
 │   └── requirements.txt
 │
@@ -216,7 +216,7 @@ Extracts ~137 base features in 5 groups, then generates ~55 derived clinical fea
 
 ### 3. Survival Prediction
 
-Three survival models compared. Best model selected by C-index on validation set. Outputs patient-specific survival curves S_i(t) for t = 0..30 days. Cox PH uses StandardScaler (fitted on training data only). Isotonic regression calibration is applied on the validation set before scheduling.
+Four survival models compared (Cox PH, GBM, RSF, MOTOR+GBM). Best model selected by C-index on validation set. Outputs patient-specific survival curves S_i(t) for t = 0..30 days. Cox PH uses StandardScaler (fitted on training data only). Isotonic regression calibration is applied on the validation set before scheduling.
 
 ### 4. Capacity-Constrained Scheduling
 
@@ -228,9 +228,9 @@ Cost_i(d) = C_EVENT × (1 - S_i(d)) + C_VISIT
 
 where C_EVENT = €10,000 (adverse event cost) and C_VISIT = €150 (appointment cost).
 
-Two exact solvers: ILP (PuLP/CBC) for small cohorts, and min-cost assignment (scipy `linear_sum_assignment`) for the full cohort without batching.
+The problem is reformulated as a min-cost assignment and solved exactly via the Hungarian algorithm (scipy `linear_sum_assignment`). An ILP solver (PuLP/CBC) is also available for small cohorts. A greedy heuristic provides near-optimal results in under 50ms for real-time deployment.
 
-**Specialty pool capacity** (base rates for ~500-bed hospital):
+**Specialty pool capacity** (default daily slots, configurable per hospital):
 
 | Pool | Slots/day |
 |------|-----------|
@@ -320,17 +320,20 @@ Requires: `pip install fastapi uvicorn dash plotly requests polars`
 | GET | `/api/results` | Pre-computed pipeline results (4 models, 10 policies) |
 | GET | `/api/patients/{index}/curve` | Individual S(t) curve, assignment, specialty, cost |
 | GET | `/api/patients/count` | Total number of test patients |
-| POST | `/api/schedule` | Live greedy re-scheduling with custom capacity |
+| POST | `/api/schedule` | Simulate scheduling with custom capacity and patient demand |
 
-**Example: re-schedule with custom capacity**
+**Example: simulate a hospital scenario**
 
 ```bash
 curl -X POST http://localhost:8000/api/schedule \
   -H 'Content-Type: application/json' \
-  -d '{"capacity": {"cardiology": 8, "neurology": 10, "surgery": 15, "general_medicine": 25}}'
+  -d '{
+    "capacity": {"cardiology": 15, "neurology": 10, "surgery": 15, "general_medicine": 25},
+    "patients_per_day": {"cardiology": 10, "neurology": 7, "surgery": 5, "general_medicine": 20}
+  }'
 ```
 
-Returns assignment distribution, catch rate, cost, and computation time (~200ms).
+`capacity` sets daily follow-up slots per specialty (hospital operational capacity). `patients_per_day` sets daily discharge volume per specialty (demand). The framework samples patients with realistic risk curves from MIMIC-IV and schedules them against the specified capacity. Returns assignment distribution, catch rate, cost comparisons vs day-14 and day-30 baselines, and overflow count (~200ms).
 
 ### Dashboard Pages
 
@@ -338,7 +341,7 @@ Returns assignment distribution, catch rate, cost, and computation time (~200ms)
 
 2. **Patient Explorer** (`/patients`) - Side-by-side survival curves for any two patients. Demonstrates the marginal benefit principle: patients with steeper risk trajectories get earlier appointments even if their absolute risk is lower. Shows risk exposure shading and event markers (caught vs missed).
 
-3. **Interactive Scheduler** (`/scheduler`) - Adjust per-specialty capacity via sliders and re-run the greedy scheduler in real time. Watch how the framework adapts to different operational constraints. Compares live greedy results against the pre-computed optimal MinCost solution.
+3. **Interactive Scheduler** (`/scheduler`) - Simulate hospital scheduling scenarios by setting daily clinic capacity (supply) and patient discharge volume (demand) per specialty. The framework samples patients with real risk curves and schedules them against specified capacity in real time. Shows cost comparisons vs fixed day-14 and day-30 baselines, catch rate, overflow tracking, and per-specialty assignment distribution.
 
 ## Technology
 
