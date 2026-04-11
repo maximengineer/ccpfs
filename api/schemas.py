@@ -13,7 +13,16 @@ class ScheduleRequest(BaseModel):
             "surgery": 15,
             "general_medicine": 25,
         },
-        description="Base daily slot capacity per specialty (scaled to cohort size at runtime).",
+        description="Daily follow-up appointment slots per specialty (hospital operational capacity).",
+    )
+    patients_per_day: dict[str, int] = Field(
+        default_factory=lambda: {
+            "cardiology": 10,
+            "neurology": 7,
+            "surgery": 5,
+            "general_medicine": 20,
+        },
+        description="Daily patient discharges per specialty needing follow-up (demand simulation).",
     )
 
 
@@ -70,11 +79,16 @@ class ScheduleMetrics(BaseModel):
     avg_cost: float
     catch_rate: float
     ebf_rate: float
-    vs_uniform_pct: float
+    vs_uniform14_pct: float
+    vs_uniform30_pct: float
     elapsed_ms: float
 
 
 class ScheduleResponse(BaseModel):
     day_histogram: list[int]
+    day_histogram_overflow: list[int]
     by_specialty: dict[str, list[int]]
+    overflow_count: int
+    total_patients: int
+    scheduled_within_capacity: int
     metrics: ScheduleMetrics
