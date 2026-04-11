@@ -142,8 +142,15 @@ def survival_curve_figure(curve: list[float], assigned_day: int,
 
 def day_histogram_figure(day_hist: list[int],
                          by_specialty: dict[str, list[int]] | None = None,
+                         overflow_hist: list[int] | None = None,
+                         total_capacity_per_day: int | None = None,
                          title: str = "Patient Assignment Distribution") -> go.Figure:
-    """Stacked bar chart of assignments across 30 days, colored by specialty."""
+    """Stacked bar chart showing how daily capacity slots are allocated.
+
+    Only patients scheduled within capacity are shown (colored by specialty).
+    Overflow is reported separately as a metric, not as bars.
+    A dashed line shows the daily capacity limit for reference.
+    """
     days = list(range(1, len(day_hist) + 1))
 
     fig = go.Figure()
@@ -157,19 +164,32 @@ def day_histogram_figure(day_hist: list[int],
                     y=by_specialty[name],
                     marker_color=SPECIALTY_COLORS.get(name, COLORS["muted"]),
                 ))
-        fig.update_layout(barmode="stack")
     else:
         fig.add_trace(go.Bar(
+            name="Scheduled",
             x=days, y=day_hist,
             marker_color=COLORS["primary"],
         ))
 
+    # Add capacity limit line
+    if total_capacity_per_day:
+        fig.add_hline(
+            y=total_capacity_per_day,
+            line_dash="dash",
+            line_color="#6b7280",
+            annotation_text=f"Daily capacity: {total_capacity_per_day} slots",
+            annotation_position="top right",
+            annotation_font_size=11,
+            annotation_font_color="#6b7280",
+        )
+
     fig.update_layout(
+        barmode="stack",
         title=title,
         xaxis_title="Follow-up day",
-        yaxis_title="Number of patients",
-        height=350,
-        showlegend=bool(by_specialty),
+        yaxis_title="Patients scheduled (within capacity)",
+        height=400,
+        showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
 
