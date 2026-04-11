@@ -134,6 +134,8 @@ def run_schedule(req: ScheduleRequest):
         avg_cost=round(avg_cost, 0),
         catch_rate=round(ebf["catch_rate"] * 100, 1),
         ebf_rate=round(ebf["ebf_rate"] * 100, 1),
+        uniform14_cost=round(uniform14_cost, 0),
+        uniform30_cost=round(uniform30_cost, 0),
         vs_uniform14_pct=round(vs_uniform14, 1),
         vs_uniform30_pct=round(vs_uniform30, 1),
         elapsed_ms=round(elapsed_ms, 1),
