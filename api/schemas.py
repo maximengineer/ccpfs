@@ -79,6 +79,8 @@ class ScheduleMetrics(BaseModel):
     avg_cost: float
     catch_rate: float
     ebf_rate: float
+    uniform14_cost: float
+    uniform30_cost: float
     vs_uniform14_pct: float
     vs_uniform30_pct: float
     elapsed_ms: float
