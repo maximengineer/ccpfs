@@ -4,6 +4,31 @@ An optimisation framework that uses patient-level survival predictions to schedu
 
 **Validated on MIMIC-IV v3.1** - 275,022 discharge episodes from 137,054 patients.
 
+## Try It Without MIMIC-IV (Demo Mode)
+
+No credentialed access required. Run the full framework end-to-end with synthetic patient data:
+
+```bash
+git clone https://github.com/maximengineer/ccpfs
+cd ccpfs/scheduling_follow_up
+pip install -r requirements.txt
+python demo_setup.py                            # ~30 sec - 10K synthetic patients + all policies
+docker compose -f docker-compose.demo.yml up    # Dashboard at http://localhost:3000
+```
+
+The synthetic cohort uses Weibull survival distributions calibrated to match MIMIC-IV's specialty mix (General Medicine 55.1%, Cardiology 19.7%, Neurology 13.7%, Surgery 11.5%) and the overall 20% readmission rate. **All framework code runs identically** — only the patient data is synthetic. The dashboard, API, and every scheduling policy behave exactly as they do on the real cohort. Every artefact produced by `demo_setup.py` is tagged `"synthetic": true` so it can never be confused with real MIMIC-IV output.
+
+Demo output is written to `data/demo/` — a **separate directory** from `data/processed/` (which is reserved for real MIMIC-IV pipeline output). The two are never mixed. The script refuses to overwrite non-synthetic data and provides a clean command:
+
+```bash
+python demo_setup.py --clean                    # remove data/demo/
+python demo_setup.py --n-patients 25000         # larger cohort (slower)
+python demo_setup.py --seed 7                   # change random seed
+python demo_setup.py --out-dir /tmp/demo        # redirect output
+```
+
+Use `docker compose -f docker-compose.demo.yml up` for demo mode. Plain `docker compose up` is reserved for real MIMIC-IV data in `data/processed/`. To reproduce the MIMIC-IV results in the paper, see [Access Requirements](#access-requirements).
+
 ## Problem
 
 After hospital discharge, patients need follow-up appointments. Current practice uses fixed schedules (e.g., "everyone at 14 days") that ignore individual risk profiles and clinic capacity. High-risk patients may wait too long; low-risk patients consume scarce slots unnecessarily.
@@ -18,7 +43,9 @@ CCPFS solves this by:
 ```
 scheduling_follow_up/
 ├── config.py                       # Central configuration (costs, horizons, paths)
-├── run_pipeline.py                 # Step-based pipeline orchestrator
+├── run_pipeline.py                 # Step-based pipeline orchestrator (real MIMIC-IV)
+├── demo_setup.py                   # Synthetic-data demo (no MIMIC-IV needed)
+├── DEMO_MODE_PLAN.md               # Demo-mode design doc
 ├── parallel_train.py               # Parallel model training (GBM + Cox + RSF concurrently)
 ├── requirements.txt                # Python dependencies
 │
@@ -85,8 +112,9 @@ scheduling_follow_up/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── docker-compose.yml              # Two-service orchestration (backend + frontend)
-├── .dockerignore                   # Excludes raw data, large models from build context
+├── docker-compose.yml              # Two-service orchestration (real MIMIC-IV, mounts data/processed/)
+├── docker-compose.demo.yml         # Demo-mode orchestration (mounts data/demo/ instead)
+├── .dockerignore                   # Excludes raw data, synthetic demo data, large models from build context
 │
 ├── tests/                          # pytest suite (24 tests)
 │   └── test_policy.py
@@ -94,22 +122,23 @@ scheduling_follow_up/
 ├── notebooks/                      # Jupyter demonstrations
 │   └── 01_pipeline_demo.ipynb
 │
-└── data/                           # Gitignored - restricted MIMIC-IV data
+└── data/                           # Gitignored - restricted MIMIC-IV data + synthetic demo output
     ├── meds/                       # MEDS-format MIMIC-IV (364K patients, 366 shards)
-    └── processed/                  # Cohort, features, models, results
-        ├── cohort.parquet           # Output of --step cohort
-        ├── features.npz             # Output of --step features
-        ├── curves_test.npz          # Output of --step train / calibrate
-        ├── models_info.json         # Model metrics and params
-        ├── scheduling_results.npz   # Output of --step schedule
-        ├── pipeline_results.json    # Output of --step report
-        └── motor_output/            # MOTOR foundation model results
-            ├── aligned_embeddings.npz  # Train/val/test embeddings (768-dim)
-            ├── motor_curves.npz        # S(t) curves from MOTOR+GBM
-            ├── motor_gbm.joblib        # Trained GBM on PCA embeddings
-            ├── motor_pca.joblib        # PCA transformer (768→64)
-            ├── motor_scaler.joblib     # StandardScaler for embeddings
-            └── motor_result.json       # Metrics and hyperparameters
+    ├── processed/                  # Real MIMIC-IV pipeline outputs (written by run_pipeline.py)
+    │   ├── cohort.parquet           # Output of --step cohort
+    │   ├── features.npz             # Output of --step features
+    │   ├── curves_test.npz          # Output of --step train / calibrate
+    │   ├── models_info.json         # Model metrics and params
+    │   ├── scheduling_results.npz   # Output of --step schedule
+    │   ├── pipeline_results.json    # Output of --step report
+    │   └── motor_output/            # MOTOR foundation model results
+    │       ├── aligned_embeddings.npz  # Train/val/test embeddings (768-dim)
+    │       ├── motor_curves.npz        # S(t) curves from MOTOR+GBM
+    │       ├── motor_gbm.joblib        # Trained GBM on PCA embeddings
+    │       ├── motor_pca.joblib        # PCA transformer (768→64)
+    │       ├── motor_scaler.joblib     # StandardScaler for embeddings
+    │       └── motor_result.json       # Metrics and hyperparameters
+    └── demo/                       # Synthetic demo outputs (written by demo_setup.py; API-compatible subset of processed/)
 ```
 
 ## Quick Start
@@ -285,16 +314,25 @@ The framework includes a REST API and interactive dashboard for exploring result
 
 ### Running with Docker Compose
 
+For real MIMIC-IV pipeline output (`data/processed/`):
+
 ```bash
 cd scheduling_follow_up
 docker compose up --build
 ```
 
-This starts two services:
+For the synthetic demo (`data/demo/`, produced by `python demo_setup.py`):
+
+```bash
+cd scheduling_follow_up
+docker compose -f docker-compose.demo.yml up --build
+```
+
+Either way, two services come up:
 - **Dashboard**: http://localhost:3000 - interactive visualisations
 - **API**: http://localhost:8000 - REST endpoints (OpenAPI docs at http://localhost:8000/docs)
 
-Data is volume-mounted read-only from `data/processed/` and `models/saved/` - no patient data is baked into Docker images.
+Data is volume-mounted read-only - no patient data is baked into Docker images. The two compose files differ only in which host directory is mounted as `/data`.
 
 ### Running without Docker
 
@@ -333,7 +371,7 @@ curl -X POST http://localhost:8000/api/schedule \
   }'
 ```
 
-`capacity` sets daily follow-up slots per specialty (hospital operational capacity). `patients_per_day` sets daily discharge volume per specialty (demand). The framework samples patients with realistic risk curves from MIMIC-IV and schedules them against the specified capacity. Returns assignment distribution, catch rate, cost comparisons vs day-14 and day-30 baselines, and overflow count (~200ms).
+`capacity` sets daily follow-up slots per specialty (hospital operational capacity). `patients_per_day` sets daily discharge volume per specialty (demand). The framework samples patients from the loaded test cohort (MIMIC-IV or the synthetic demo cohort) and schedules them against the specified capacity. Returns assignment distribution, catch rate, cost comparisons vs day-14 and day-30 baselines, and overflow count (~200ms).
 
 ### Dashboard Pages
 
@@ -341,7 +379,7 @@ curl -X POST http://localhost:8000/api/schedule \
 
 2. **Patient Explorer** (`/patients`) - Side-by-side survival curves for any two patients. Demonstrates the marginal benefit principle: patients with steeper risk trajectories get earlier appointments even if their absolute risk is lower. Shows risk exposure shading and event markers (caught vs missed).
 
-3. **Interactive Scheduler** (`/scheduler`) - Simulate hospital scheduling scenarios by setting daily clinic capacity (supply) and patient discharge volume (demand) per specialty. The framework samples patients with real risk curves and schedules them against specified capacity in real time. Shows cost comparisons vs fixed day-14 and day-30 baselines, catch rate, overflow tracking, and per-specialty assignment distribution.
+3. **Interactive Scheduler** (`/scheduler`) - Simulate hospital scheduling scenarios by setting daily clinic capacity (supply) and patient discharge volume (demand) per specialty. The framework samples patients from the loaded test cohort (MIMIC-IV or synthetic demo) and schedules them against specified capacity in real time. Shows cost comparisons vs fixed day-14 and day-30 baselines, catch rate, overflow tracking, and per-specialty assignment distribution.
 
 ## Technology
 
@@ -374,6 +412,8 @@ This project uses **MIMIC-IV v3.1** converted to **MEDS format**. To reproduce:
 2. Apply for credentialed access to [MIMIC-IV on PhysioNet](https://physionet.org/content/mimiciv/3.1/)
 3. Download and convert to MEDS format using [MEDS-ETL](https://github.com/Medical-Event-Data-Standard/meds_etl)
 4. Place output in `data/meds/MEDS_cohort/` (or update paths in `config.py`)
+
+If you only want to explore the dashboard and scheduling policies, use [Demo Mode](#try-it-without-mimic-iv-demo-mode) instead — no credentialed access required.
 
 ### Cohort Statistics
 
