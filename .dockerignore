@@ -3,6 +3,9 @@ data/raw/
 data/meds/
 data/synthea/
 
+# Synthetic demo data (mounted at runtime, never baked into images)
+data/demo/
+
 # Large artifacts not needed for serving
 data/processed/motor_output/
 data/processed/parallel_tmp/
