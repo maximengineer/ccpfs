@@ -21,12 +21,22 @@ from pulp import (
     LpMinimize,
     LpProblem,
     LpStatus,
-    LpVariable,
     lpSum,
-    PULP_CBC_CMD,
+    COIN_CMD,
 )
 
 from config import C_EVENT, C_VISIT, DEFAULT_DAILY_CAPACITY, HORIZON_DAYS
+
+
+def cbc_solver(time_limit: int, verbose: bool = False) -> COIN_CMD:
+    """CBC solver backed by the binary shipped with the `PuLP[cbc]` extra.
+
+    cbcbox is imported lazily so modules that only use the greedy schedulers
+    (e.g. the API) do not need the CBC binary installed.
+    """
+    import cbcbox
+
+    return COIN_CMD(path=cbcbox.cbc_bin_path(), timeLimit=time_limit, msg=verbose)
 
 
 def schedule_ilp(
@@ -84,7 +94,7 @@ def schedule_ilp(
 
     # Decision variables
     x = [
-        [LpVariable(f"x_{i}_{d}", cat=LpBinary) for d in days]
+        [prob.add_variable(f"x_{i}_{d}", cat=LpBinary) for d in days]
         for i in patients
     ]
 
@@ -104,7 +114,7 @@ def schedule_ilp(
         prob += lpSum(x[i][d - 1] for i in patients) <= capacity_per_day[d - 1]
 
     # Solve
-    solver = PULP_CBC_CMD(timeLimit=time_limit, msg=verbose)
+    solver = cbc_solver(time_limit, verbose)
     prob.solve(solver)
 
     status = LpStatus[prob.status]

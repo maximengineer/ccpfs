@@ -1,6 +1,7 @@
 numpy>=2.4
 scipy>=1.17
-PuLP>=3.3
+PuLP[cbc]>=3.3.2,<4
+polars>=1.27
 pytest>=9.0
 matplotlib>=3.10
 seaborn>=0.13
