@@ -43,6 +43,10 @@ def _sample_patients(
     from the available pool to simulate realistic demand. Uses actual S(t)
     curves from the database for realistic risk profiles.
 
+    If demand exceeds the pool size (e.g. the small synthetic demo cohort),
+    patients are resampled with replacement so the requested volume is always
+    honoured rather than silently capped at the pool size.
+
     Returns array of selected patient indices.
     """
     selected = []
@@ -50,12 +54,13 @@ def _sample_patients(
         idx = SPECIALTY_INDEX[name]
         pool_indices = np.where(specialty_pools == idx)[0]
         n_needed = daily_vol * horizon
-        if n_needed >= len(pool_indices):
-            # Use all available patients from this specialty
-            selected.append(pool_indices)
-        else:
-            chosen = rng.choice(pool_indices, size=n_needed, replace=False)
-            selected.append(chosen)
+        if len(pool_indices) == 0 or n_needed <= 0:
+            continue
+        replace = n_needed > len(pool_indices)
+        chosen = rng.choice(pool_indices, size=n_needed, replace=replace)
+        selected.append(chosen)
+    if not selected:
+        return np.array([], dtype=np.int64)
     return np.concatenate(selected)
 
 

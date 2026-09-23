@@ -33,8 +33,8 @@ layout = html.Div([
             html.Strong("What to try: "),
             "Start with defaults (supply > demand = everyone gets scheduled). Then increase patient volume "
             "or reduce capacity to simulate pressure - watch costs rise and catch rate drop as patients "
-            "compete for limited early slots. The framework uses real patient risk curves from MIMIC-IV "
-            "to produce realistic scheduling outcomes.",
+            "compete for limited early slots. The framework samples patient risk curves from the loaded "
+            "test cohort (MIMIC-IV or the synthetic demo) to produce realistic scheduling outcomes.",
         ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
         html.P([
             html.Strong("Supply vs Demand: "),

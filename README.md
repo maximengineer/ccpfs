@@ -10,7 +10,7 @@ No credentialed access required. Run the full framework end-to-end with syntheti
 
 ```bash
 git clone https://github.com/maximengineer/ccpfs
-cd ccpfs/scheduling_follow_up
+cd ccpfs
 pip install -r requirements.txt
 python demo_setup.py                            # ~30 sec - 10K synthetic patients + all policies
 docker compose -f docker-compose.demo.yml up    # Dashboard at http://localhost:3000
@@ -41,11 +41,10 @@ CCPFS solves this by:
 ## Project Structure
 
 ```
-scheduling_follow_up/
+ccpfs/
 ├── config.py                       # Central configuration (costs, horizons, paths)
 ├── run_pipeline.py                 # Step-based pipeline orchestrator (real MIMIC-IV)
 ├── demo_setup.py                   # Synthetic-data demo (no MIMIC-IV needed)
-├── DEMO_MODE_PLAN.md               # Demo-mode design doc
 ├── parallel_train.py               # Parallel model training (GBM + Cox + RSF concurrently)
 ├── requirements.txt                # Python dependencies
 │
@@ -317,14 +316,14 @@ The framework includes a REST API and interactive dashboard for exploring result
 For real MIMIC-IV pipeline output (`data/processed/`):
 
 ```bash
-cd scheduling_follow_up
+cd ccpfs
 docker compose up --build
 ```
 
 For the synthetic demo (`data/demo/`, produced by `python demo_setup.py`):
 
 ```bash
-cd scheduling_follow_up
+cd ccpfs
 docker compose -f docker-compose.demo.yml up --build
 ```
 
@@ -337,7 +336,7 @@ Data is volume-mounted read-only - no patient data is baked into Docker images. 
 ### Running without Docker
 
 ```bash
-cd scheduling_follow_up
+cd ccpfs
 
 # Terminal 1: Start API
 PYTHONPATH=. CCPFS_DATA_DIR=data/processed CCPFS_MODEL_DIR=models/saved \
@@ -371,7 +370,7 @@ curl -X POST http://localhost:8000/api/schedule \
   }'
 ```
 
-`capacity` sets daily follow-up slots per specialty (hospital operational capacity). `patients_per_day` sets daily discharge volume per specialty (demand). The framework samples patients from the loaded test cohort (MIMIC-IV or the synthetic demo cohort) and schedules them against the specified capacity. Returns assignment distribution, catch rate, cost comparisons vs day-14 and day-30 baselines, and overflow count (~200ms).
+`capacity` sets daily follow-up slots per specialty (hospital operational capacity). `patients_per_day` sets daily discharge volume per specialty (demand). The framework samples patients from the loaded test cohort (MIMIC-IV or the synthetic demo cohort) and schedules them against the specified capacity. If requested demand exceeds a specialty's pool in the loaded cohort (e.g. the 1,000-patient demo test split), patients are resampled with replacement so the requested volume is always honoured. Returns assignment distribution, catch rate, cost comparisons vs day-14 and day-30 baselines, and overflow count (~200ms).
 
 ### Dashboard Pages
 

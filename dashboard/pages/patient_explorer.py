@@ -35,6 +35,7 @@ def _initial_pair():
     return a, b
 
 
+_max_patient = _get_max_patient()
 _default_a, _default_b = _initial_pair()
 
 
@@ -75,19 +76,19 @@ layout = html.Div([
     ),
 
     # Store the actual max patient index (fetched from API)
-    dcc.Store(id="max-patient-store", data=MAX_PATIENT),
+    dcc.Store(id="max-patient-store", data=_max_patient),
 
     html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "marginBottom": "16px"}, children=[
         html.Div(style={"flex": "1"}, children=[
             html.Label("Patient A:", style={"fontWeight": "bold"}),
-            html.Span(" (1 to 27,641)", style={"color": "#9ca3af", "fontSize": "12px"}),
-            dcc.Input(id="patient-a-input", type="number", value=_default_a, min=0, max=MAX_PATIENT,
+            html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
+            dcc.Input(id="patient-a-input", type="number", value=_default_a, min=0, max=_max_patient,
                       style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
         ]),
         html.Div(style={"flex": "1"}, children=[
             html.Label("Patient B:", style={"fontWeight": "bold"}),
-            html.Span(" (1 to 27,641)", style={"color": "#9ca3af", "fontSize": "12px"}),
-            dcc.Input(id="patient-b-input", type="number", value=_default_b, min=0, max=MAX_PATIENT,
+            html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
+            dcc.Input(id="patient-b-input", type="number", value=_default_b, min=0, max=_max_patient,
                       style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
         ]),
         html.Div(style={"paddingTop": "20px"}, children=[
