@@ -27,6 +27,11 @@ from policy.baselines import (
     guideline_policy,
     unconstrained_optimal_policy,
 )
+from policy.mincost_solver import schedule_mincost_global, schedule_mincost_specialty
+from policy.specialty_scheduler import (
+    proportional_specialty_capacity,
+    schedule_greedy_specialty,
+)
 from policy.uncertainty_adjustment import (
     apply_uncertainty_adjustment,
     uncertainty_score,
@@ -244,6 +249,49 @@ class TestMetrics:
         cap = np.full(30, 2)  # Only 2 slots per day
         result = capacity_utilisation(assignments, cap, horizon=30)
         assert result["overflow_days"] == 1  # Day 1 overflows
+
+
+# ---------------------------------------------------------------------------
+# Specialty capacity
+# ---------------------------------------------------------------------------
+
+class TestSpecialtyCapacity:
+    @pytest.fixture
+    def pools(self, cohort):
+        # Skewed mix like MIMIC-IV: general medicine (3) dominates
+        rng = np.random.default_rng(0)
+        return rng.choice(4, size=len(cohort["survival_curves"]), p=[0.2, 0.14, 0.11, 0.55])
+
+    def test_proportional_capacity_covers_every_pool(self, pools):
+        cap = proportional_specialty_capacity(pools, horizon=30)
+        counts = np.bincount(pools, minlength=4)
+        for k in range(4):
+            assert cap[k] * 30 >= counts[k]
+            assert cap[k] * 30 - counts[k] < 30  # binding: < 1 day of slack
+
+    def test_proportional_capacity_has_no_overflow(self, cohort, pools):
+        curves = cohort["survival_curves"]
+        cap = proportional_specialty_capacity(pools, horizon=30)
+        greedy = schedule_greedy_specialty(curves, pools, capacity_per_specialty_day=cap)
+        mincost = schedule_mincost_specialty(curves, pools, capacity_per_specialty_day=cap)
+        assert greedy["status"] == "Feasible"
+        assert mincost["status"] == "Optimal"
+        assert len(mincost["assignments"]) == len(curves)
+
+    def test_pool_decomposition_spreads_overflow(self):
+        # > 15000 patients takes the per-pool path; one pool with 1 slot/day
+        n = 15_030
+        curves = np.tile(1.0 - np.arange(31) / 60.0, (n, 1))
+        pools = np.full(n, 3)
+        result = schedule_mincost_specialty(curves, pools, {0: 0, 1: 0, 2: 0, 3: 1})
+        per_day = np.bincount(list(result["assignments"].values()), minlength=31)[1:]
+        assert len(result["assignments"]) == n
+        assert per_day.max() - per_day.min() <= 1  # spread evenly, not piled on day 1
+
+    def test_mincost_global_does_not_mutate_capacity(self, cohort):
+        cap = np.full(30, 2)  # 60 slots for 100 patients forces the top-up path
+        schedule_mincost_global(cohort["survival_curves"], capacity_per_day=cap)
+        assert cap.sum() == 60
 
 
 # ---------------------------------------------------------------------------

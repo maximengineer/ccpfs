@@ -15,18 +15,19 @@ from config import SPECIALTY_NAMES
 
 logger = logging.getLogger(__name__)
 
-# Policy display metadata: (key_prefix, display_name, capacity_aware, feasible)
+# Policy display metadata: (key_prefix, display_name, capacity_aware).
+# Feasibility is derived from each policy's saved solver status at request time.
 POLICY_META = [
-    ("guideline", "Guideline (ACC/AHA)", False, True),
-    ("uniform_d14", "Uniform day 14", False, True),
-    ("risk_bucket", "Risk bucket", False, True),
-    ("uniform_d14_cap", "Uniform-14 (capacity)", True, False),
-    ("guideline_cap", "Guideline (capacity)", True, False),
-    ("greedy_global", "Greedy (global)", True, True),
-    ("greedy_specialty", "Greedy (specialty)", True, True),
-    ("mincost_global", "MinCost (global)", True, True),
-    ("mincost_specialty", "MinCost (specialty)", True, True),
-    ("unconstrained", "Unconstrained (oracle)", False, True),
+    ("guideline", "Guideline (ACC/AHA)", False),
+    ("uniform_d14", "Uniform day 14", False),
+    ("risk_bucket", "Risk bucket", False),
+    ("uniform_d14_cap", "Uniform-14 (capacity)", True),
+    ("guideline_cap", "Guideline (capacity)", True),
+    ("greedy_global", "Greedy (global)", True),
+    ("greedy_specialty", "Greedy (specialty)", True),
+    ("mincost_global", "MinCost (global)", True),
+    ("mincost_specialty", "MinCost (specialty)", True),
+    ("unconstrained", "Unconstrained (oracle)", False),
 ]
 
 

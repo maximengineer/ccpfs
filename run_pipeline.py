@@ -29,13 +29,12 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-# Ensure scheduling_follow_up is on the path
+# Ensure project root is on the path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (
     C_EVENT,
     C_VISIT,
-    DEFAULT_SPECIALTY_CAPACITY,
     HORIZON_DAYS,
     MODEL_DIR,
     N_SPECIALTIES,
@@ -440,7 +439,9 @@ def step_schedule(args, survival_curves, cohort):
     print("STEP 5: Run Scheduling Policies")
     print("=" * 60)
 
-    from policy.specialty_scheduler import schedule_ilp_specialty, schedule_greedy_specialty
+    from policy.specialty_scheduler import (
+        proportional_specialty_capacity, schedule_ilp_specialty, schedule_greedy_specialty,
+    )
     from policy.ilp_scheduler import schedule_ilp
     from policy.greedy_scheduler import schedule_greedy
     from policy.mincost_solver import schedule_mincost_specialty, schedule_mincost_global
@@ -454,23 +455,20 @@ def step_schedule(args, survival_curves, cohort):
     batch_size = args.scheduler_batch
     results = {}
 
-    # Scale capacity
-    total_default_cap = sum(DEFAULT_SPECIALTY_CAPACITY.values())
-    needed_per_day = int(np.ceil(n_patients / HORIZON_DAYS))
-    capacity_scale = max(1.0, needed_per_day / total_default_cap)
-
-    scaled_specialty_cap = {
-        k: int(np.ceil(v * capacity_scale))
-        for k, v in DEFAULT_SPECIALTY_CAPACITY.items()
-    }
+    # Capacity proportional to each pool's patient count, so every pool can
+    # schedule all its patients (binding but feasible). Scaling the default
+    # 15/10/15/25 split instead under-provisions general medicine (55% of
+    # patients, 38% of slots) and forces thousands of patients into overflow.
+    scaled_specialty_cap = proportional_specialty_capacity(specialty_pools, HORIZON_DAYS)
     total_scaled_cap = sum(scaled_specialty_cap.values())
     global_capacity = np.full(HORIZON_DAYS, total_scaled_cap)
 
-    print(f"\n  Capacity scaling: {capacity_scale:.1f}x "
-          f"({total_default_cap}/day -> {total_scaled_cap}/day, "
-          f"total={total_scaled_cap * HORIZON_DAYS:,} slots for {n_patients:,} patients)")
+    print(f"\n  Capacity (proportional to pool size): {total_scaled_cap}/day, "
+          f"total={total_scaled_cap * HORIZON_DAYS:,} slots for {n_patients:,} patients")
+    pool_counts = np.bincount(specialty_pools.astype(int), minlength=len(SPECIALTY_NAMES))
     for k, name in enumerate(SPECIALTY_NAMES):
-        print(f"    {name}: {DEFAULT_SPECIALTY_CAPACITY[k]}/day -> {scaled_specialty_cap[k]}/day")
+        print(f"    {name}: {pool_counts[k]:,} patients -> {scaled_specialty_cap[k]}/day "
+              f"({scaled_specialty_cap[k] * HORIZON_DAYS:,} slots)")
 
     # --- Baselines ---
     print(f"\n  Running baselines on {n_patients:,} patients...")

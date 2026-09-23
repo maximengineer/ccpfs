@@ -22,9 +22,7 @@ from pulp import (
     LpMinimize,
     LpProblem,
     LpStatus,
-    LpVariable,
     lpSum,
-    PULP_CBC_CMD,
 )
 
 from config import (
@@ -35,6 +33,28 @@ from config import (
     N_SPECIALTIES,
     SPECIALTY_NAMES,
 )
+from policy.ilp_scheduler import cbc_solver
+
+
+def proportional_specialty_capacity(
+    specialty_pools: np.ndarray,
+    horizon: int = HORIZON_DAYS,
+) -> dict:
+    """Per-specialty daily capacity proportional to each pool's patient count.
+
+    Pool k gets ceil(n_k / horizon) slots per day, so its horizon-day capacity
+    covers every patient in the pool with fewer than `horizon` spare slots.
+    Capacity is binding (not everyone gets their best day) but feasible (no
+    pool overflows). Used for retrospective evaluation; deployments would
+    pass their real clinic capacity instead.
+
+    Returns
+    -------
+    dict
+        Maps pool_index -> daily capacity (int), for every pool.
+    """
+    counts = np.bincount(specialty_pools.astype(int), minlength=N_SPECIALTIES)
+    return {k: int(np.ceil(counts[k] / horizon)) for k in range(N_SPECIALTIES)}
 
 
 def schedule_ilp_specialty(
@@ -89,7 +109,7 @@ def schedule_ilp_specialty(
     x = {}
     for i in patients:
         for d in days:
-            x[i, d] = LpVariable(f"x_{i}_{d}", cat=LpBinary)
+            x[i, d] = prob.add_variable(f"x_{i}_{d}", cat=LpBinary)
 
     # Objective: minimise total expected harm
     prob += lpSum(
@@ -112,7 +132,7 @@ def schedule_ilp_specialty(
             prob += lpSum(x[int(i), d] for i in members) <= cap
 
     # Solve
-    solver = PULP_CBC_CMD(timeLimit=time_limit, msg=verbose)
+    solver = cbc_solver(time_limit, verbose)
     prob.solve(solver)
 
     status = LpStatus[prob.status]

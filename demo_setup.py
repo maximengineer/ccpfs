@@ -9,7 +9,7 @@ MIMIC-IV artefacts in `data/processed/`. Every file written is tagged
 `"synthetic": true` so it cannot be mistaken for real pipeline output.
 
 Usage:
-    cd scheduling_follow_up
+    cd ccpfs
     python demo_setup.py                                          # writes data/demo/
     docker compose -f docker-compose.demo.yml up                  # dashboard at :3000
 
@@ -31,7 +31,7 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import DEFAULT_SPECIALTY_CAPACITY, HORIZON_DAYS, RANDOM_SEED, SPECIALTY_NAMES
+from config import HORIZON_DAYS, RANDOM_SEED, SPECIALTY_NAMES
 from evaluation.metrics import event_before_followup_rate
 from evaluation.synthetic import generate_synthetic_cohort
 from policy.baselines import (
@@ -43,7 +43,7 @@ from policy.baselines import (
     uniform_policy,
 )
 from policy.mincost_solver import schedule_mincost_global, schedule_mincost_specialty
-from policy.specialty_scheduler import schedule_greedy_specialty
+from policy.specialty_scheduler import proportional_specialty_capacity, schedule_greedy_specialty
 
 # Demo output directory - kept separate from data/processed/ so we never
 # overwrite real MIMIC-IV pipeline artefacts.
@@ -59,12 +59,23 @@ SPECIALTY_SHARES = {
 
 DEFAULT_N_PATIENTS = 10_000
 
+# Risk-group mix passed to the Weibull generator. The generator's default
+# 25/50/25 mix gives a ~27% 30-day event rate; 10/40/50 (high/med/low) gives
+# ~20.5%, matching the MIMIC-IV cohort's readmission rate.
+HIGH_RISK_FRAC = 0.10
+MED_RISK_FRAC = 0.40
+
 
 def build_synthetic_cohort(n_patients: int, seed: int) -> dict:
     """Generate synthetic cohort and assign specialty + splits."""
     print(f"  Generating {n_patients:,} synthetic patients via Weibull hazard model...")
 
-    raw = generate_synthetic_cohort(n_patients=n_patients, seed=seed)
+    raw = generate_synthetic_cohort(
+        n_patients=n_patients,
+        seed=seed,
+        high_risk_frac=HIGH_RISK_FRAC,
+        med_risk_frac=MED_RISK_FRAC,
+    )
     curves = raw["survival_curves"]           # (N, H+1)
     events = raw["event_indicators"]          # (N,)
     times = raw["event_times"]                # (N,)
@@ -162,6 +173,13 @@ def run_all_policies(test: dict) -> dict:
 
     results = {}
 
+    # Same capacity rule as run_pipeline.py: each pool gets enough daily slots
+    # for all its patients over the horizon (binding but feasible)
+    capacity = proportional_specialty_capacity(pools, HORIZON_DAYS)
+    global_daily_total = int(sum(capacity.values()))
+    print(f"  Capacity/day: " + ", ".join(
+        f"{SPECIALTY_NAMES[k]}={v}" for k, v in capacity.items()) + f" (total {global_daily_total})")
+
     def finalise(name: str, out: dict):
         assigns = out["assignments"]
         days = assignments_to_days(assigns, n)
@@ -180,21 +198,24 @@ def run_all_policies(test: dict) -> dict:
     finalise("risk_bucket", risk_bucket_policy(curves))
     finalise("guideline", guideline_policy(curves, is_heart_failure=is_hf))
     finalise("unconstrained", unconstrained_optimal_policy(curves))
-    finalise("uniform_d14_cap", uniform_capacity_policy(curves, pools, day=14))
-    finalise("guideline_cap", guideline_capacity_policy(curves, pools, is_heart_failure=is_hf))
+    finalise("uniform_d14_cap", uniform_capacity_policy(
+        curves, pools, day=14, capacity_per_specialty_day=capacity))
+    finalise("guideline_cap", guideline_capacity_policy(
+        curves, pools, is_heart_failure=is_hf, capacity_per_specialty_day=capacity))
 
     print("  Running greedy schedulers...")
-    finalise("greedy_specialty", schedule_greedy_specialty(curves, pools))
+    finalise("greedy_specialty", schedule_greedy_specialty(
+        curves, pools, capacity_per_specialty_day=capacity))
     # Global greedy: pretend everyone belongs to pool 0 with total capacity across specialties
     all_one = np.zeros_like(pools)
-    global_daily_total = int(sum(DEFAULT_SPECIALTY_CAPACITY.values()))
     finalise(
         "greedy_global",
         schedule_greedy_specialty(curves, all_one, capacity_per_specialty_day={0: global_daily_total}),
     )
 
     print("  Running min-cost solvers (may take a few seconds)...")
-    finalise("mincost_specialty", schedule_mincost_specialty(curves, pools))
+    finalise("mincost_specialty", schedule_mincost_specialty(
+        curves, pools, capacity_per_specialty_day=capacity))
     global_daily_cap = np.full(HORIZON_DAYS, global_daily_total, dtype=np.int64)
     finalise("mincost_global", schedule_mincost_global(curves, capacity_per_day=global_daily_cap))
 

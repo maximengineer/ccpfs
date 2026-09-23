@@ -77,10 +77,14 @@ def get_results():
     # Policies
     uniform_cost = sr["uniform_d14"]["total_expected_cost"] / n_test
     policies = []
-    for prefix, display_name, cap_aware, feasible in POLICY_META:
+    for prefix, display_name, cap_aware in POLICY_META:
         if prefix not in sr:
             continue
         policy_data = sr[prefix]
+        # Solver statuses flag overflow as "Infeasible (...)", "Overflow (...)"
+        # or "Optimal (overflow=N)"
+        status = str(policy_data.get("status", "")).lower()
+        feasible = "infeasible" not in status and "overflow" not in status
         avg_cost = policy_data["total_expected_cost"] / n_test
         vs_uniform = ((avg_cost - uniform_cost) / uniform_cost) * 100
         ebf = policy_data.get("ebf", {})

@@ -48,6 +48,15 @@ def schedule_mincost_specialty(
         capacity_per_specialty_day = DEFAULT_SPECIALTY_CAPACITY
 
     n_patients = len(survival_curves)
+
+    # For very large problems, decompose by pool before allocating the
+    # full N x slots matrix (~6 GB at 27K patients with overflow slots)
+    if n_patients > 15000:
+        return _solve_mincost_by_pool(
+            survival_curves, specialty_pools, capacity_per_specialty_day,
+            c_event, c_visit, horizon
+        )
+
     risks = c_event * (1.0 - survival_curves[:, 1 : horizon + 1])  # (N, H)
 
     # Build slot structure: list of (specialty, day) for each slot column
@@ -80,13 +89,6 @@ def schedule_mincost_specialty(
             # Only patients in this specialty can use this slot
             mask = specialty_pools == slot_k
             cost_matrix[mask, j] = risks[mask, slot_d]
-
-    # For very large problems, use chunked approach
-    if n_patients > 15000:
-        return _solve_mincost_by_pool(
-            survival_curves, specialty_pools, capacity_per_specialty_day,
-            c_event, c_visit, horizon
-        )
 
     # Solve assignment
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
@@ -153,24 +155,28 @@ def _solve_mincost_by_pool(
 
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
+        # Track actual usage per day for overflow spreading
+        usage = np.zeros(horizon)
+
         for ri, ci in zip(row_ind, col_ind):
             patient_idx = int(members[ri])
             day = (ci // cap) + 1
             assignments[patient_idx] = day
+            usage[day - 1] += 1
             total_cost += c_event * (1.0 - survival_curves[patient_idx, day])
 
-        # Handle overflow patients (not assigned due to insufficient capacity)
+        # Handle overflow patients (not assigned due to insufficient capacity):
+        # spread across days by picking the day with the least over-capacity
+        # usage, rather than piling everyone onto their earliest (best) day.
         if n_pool_slots < n_pool:
             assigned_set = set(row_ind)
             for ri in range(n_pool):
                 if ri not in assigned_set:
                     patient_idx = int(members[ri])
-                    risk_row = risks[ri]
-                    if np.all(np.isnan(risk_row)):
-                        risk_row = np.zeros_like(risk_row)
-                    best_day = int(np.nanargmin(risk_row)) + 1
-                    assignments[patient_idx] = best_day
-                    total_cost += c_event * (1.0 - survival_curves[patient_idx, best_day])
+                    fallback_day = int(np.argmin(usage - cap)) + 1
+                    assignments[patient_idx] = fallback_day
+                    usage[fallback_day - 1] += 1
+                    total_cost += c_event * (1.0 - survival_curves[patient_idx, fallback_day])
                     overflow_count += 1
 
     total_cost += len(assignments) * c_visit
@@ -201,6 +207,9 @@ def schedule_mincost_global(
     if capacity_per_day is None:
         cap_val = max(1, int(np.ceil(n_patients / horizon)))
         capacity_per_day = np.full(horizon, cap_val)
+    else:
+        # Copy so the overflow top-up below doesn't mutate the caller's array
+        capacity_per_day = np.array(capacity_per_day, copy=True)
 
     risks = c_event * (1.0 - survival_curves[:, 1 : horizon + 1])
 
