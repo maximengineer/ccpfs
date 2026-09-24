@@ -20,11 +20,12 @@ def get_patient_curve(index: int):
     time = float(store.t_test[index])
 
     # Get assigned day from best available policy
-    assigned_day = 15  # fallback
-    if store.scheduling and "mincost_specialty" in store.scheduling:
-        assigned_day = int(store.scheduling["mincost_specialty"][index])
-    elif store.scheduling and "greedy_specialty" in store.scheduling:
-        assigned_day = int(store.scheduling["greedy_specialty"][index])
+    # (falls back to day 15, flagged as "default", when no schedule is loaded)
+    assigned_day, assignment_policy = 15, "default"
+    for policy in ("mincost_specialty", "greedy_specialty"):
+        if store.scheduling and policy in store.scheduling:
+            assigned_day, assignment_policy = int(store.scheduling[policy][index]), policy
+            break
 
     # Get specialty from cohort (same positional index as curves)
     specialty_idx = int(store.cohort_test["specialty_pool"][index])
@@ -37,6 +38,7 @@ def get_patient_curve(index: int):
         patient_index=index,
         survival_curve=curve,
         assigned_day=assigned_day,
+        assignment_policy=assignment_policy,
         specialty=specialty_name,
         specialty_index=specialty_idx,
         event_indicator=event,

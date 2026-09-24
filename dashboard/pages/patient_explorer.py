@@ -14,7 +14,7 @@ from dashboard.components.layout import section_header
 
 API_URL = os.environ.get("CCPFS_API_URL", "http://localhost:8000")
 
-MAX_PATIENT = 27640  # updated at runtime via _get_max_patient()
+MAX_PATIENT = 27640  # fallback (MIMIC-IV test set) if the API is unreachable
 
 
 def _get_max_patient() -> int:
@@ -26,8 +26,8 @@ def _get_max_patient() -> int:
         return MAX_PATIENT
 
 
-def _initial_pair():
-    mx = _get_max_patient()
+def _initial_pair(mx: int | None = None):
+    mx = _get_max_patient() if mx is None else mx
     a = random.randint(0, mx)
     b = random.randint(0, mx)
     while b == a:
@@ -35,87 +35,89 @@ def _initial_pair():
     return a, b
 
 
-_max_patient = _get_max_patient()
-_default_a, _default_b = _initial_pair()
+def layout(**_):
+    # Built per page load so the patient range follows the currently loaded
+    # cohort, even if the API was not up when the dashboard started.
+    _max_patient = _get_max_patient()
+    _default_a, _default_b = _initial_pair(_max_patient)
 
+    return html.Div([
+        html.H2("Patient Explorer", style={"textAlign": "center", "color": "#1f2937"}),
 
-layout = html.Div([
-    html.H2("Patient Explorer", style={"textAlign": "center", "color": "#1f2937"}),
-
-    # Explainer
-    html.Div(style={
-        "backgroundColor": "#f0f9ff", "borderRadius": "8px", "padding": "16px",
-        "borderLeft": "4px solid #2563eb", "marginBottom": "24px",
-    }, children=[
-        html.P([
-            html.Strong("What does this page show? "),
-            "Each patient has a unique survival curve S(t) that tracks their probability of "
-            "remaining readmission-free over 30 days. The curve starts at 1.0 (just discharged) "
-            "and decreases as risk accumulates. The ",
-            html.Strong("shaded area"),
-            " represents risk exposure before the follow-up appointment.",
-        ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
-        html.P([
-            html.Strong("Key insight: "),
-            "The framework does not simply schedule the highest-risk patients first. Instead, "
-            "it prioritises patients with the ",
-            html.Em("steepest risk trajectories"),
-            " (largest risk spread between early and late days), because these patients "
-            "benefit most from being seen sooner. Try clicking ",
-            html.Strong("Random Pair"),
-            " to explore different cases.",
-        ], style={"margin": "0", "color": "#1e3a5f", "fontSize": "14px"}),
-    ]),
-
-    section_header("Select Patients to Compare"),
-    html.P(
-        "Compare two patients side-by-side to see how the framework assigns "
-        "earlier appointments to patients with steeper risk trajectories, "
-        "even if their absolute risk is lower.",
-        style={"color": "#6b7280", "marginBottom": "16px"},
-    ),
-
-    # Store the actual max patient index (fetched from API)
-    dcc.Store(id="max-patient-store", data=_max_patient),
-
-    html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "marginBottom": "16px"}, children=[
-        html.Div(style={"flex": "1"}, children=[
-            html.Label("Patient A:", style={"fontWeight": "bold"}),
-            html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
-            dcc.Input(id="patient-a-input", type="number", value=_default_a, min=0, max=_max_patient,
-                      style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
+        # Explainer
+        html.Div(style={
+            "backgroundColor": "#f0f9ff", "borderRadius": "8px", "padding": "16px",
+            "borderLeft": "4px solid #2563eb", "marginBottom": "24px",
+        }, children=[
+            html.P([
+                html.Strong("What does this page show? "),
+                "Each patient has a unique survival curve S(t) that tracks their probability of "
+                "remaining readmission-free over 30 days. The curve starts at 1.0 (just discharged) "
+                "and decreases as risk accumulates. The ",
+                html.Strong("shaded area"),
+                " represents risk exposure before the follow-up appointment.",
+            ], style={"margin": "0 0 8px 0", "color": "#1e3a5f", "fontSize": "14px"}),
+            html.P([
+                html.Strong("Key insight: "),
+                "The framework does not simply schedule the highest-risk patients first. Instead, "
+                "it prioritises patients with the ",
+                html.Em("steepest risk trajectories"),
+                " (largest risk spread between early and late days), because these patients "
+                "benefit most from being seen sooner. Try clicking ",
+                html.Strong("Random Pair"),
+                " to explore different cases.",
+            ], style={"margin": "0", "color": "#1e3a5f", "fontSize": "14px"}),
         ]),
-        html.Div(style={"flex": "1"}, children=[
-            html.Label("Patient B:", style={"fontWeight": "bold"}),
-            html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
-            dcc.Input(id="patient-b-input", type="number", value=_default_b, min=0, max=_max_patient,
-                      style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
-        ]),
-        html.Div(style={"paddingTop": "20px"}, children=[
-            html.Button("Random Pair", id="random-btn",
-                        style={"padding": "8px 16px", "backgroundColor": "#2563eb", "color": "white",
-                               "border": "none", "borderRadius": "4px", "cursor": "pointer"}),
-        ]),
-    ]),
 
-    # Side-by-side curves
-    html.Div(style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}, children=[
-        html.Div(style={"flex": "1", "minWidth": "400px"}, children=[
-            dcc.Graph(id="curve-a"),
-            html.Div(id="info-a", style={"padding": "8px", "backgroundColor": "#f9fafb", "borderRadius": "4px"}),
-        ]),
-        html.Div(style={"flex": "1", "minWidth": "400px"}, children=[
-            dcc.Graph(id="curve-b"),
-            html.Div(id="info-b", style={"padding": "8px", "backgroundColor": "#f9fafb", "borderRadius": "4px"}),
-        ]),
-    ]),
+        section_header("Select Patients to Compare"),
+        html.P(
+            "Compare two patients side-by-side to see how the framework assigns "
+            "earlier appointments to patients with steeper risk trajectories, "
+            "even if their absolute risk is lower.",
+            style={"color": "#6b7280", "marginBottom": "16px"},
+        ),
 
-    # Marginal benefit explanation
-    html.Div(id="comparison-insight", style={
-        "marginTop": "16px", "padding": "16px", "backgroundColor": "#eff6ff",
-        "borderRadius": "8px", "borderLeft": "4px solid #2563eb",
-    }),
-])
+        # Store the actual max patient index (fetched from API)
+        dcc.Store(id="max-patient-store", data=_max_patient),
+
+        html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "marginBottom": "16px"}, children=[
+            html.Div(style={"flex": "1"}, children=[
+                html.Label("Patient A:", style={"fontWeight": "bold"}),
+                html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
+                dcc.Input(id="patient-a-input", type="number", value=_default_a, min=0, max=_max_patient,
+                          style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
+            ]),
+            html.Div(style={"flex": "1"}, children=[
+                html.Label("Patient B:", style={"fontWeight": "bold"}),
+                html.Span(f" (0 to {_max_patient:,})", style={"color": "#9ca3af", "fontSize": "12px"}),
+                dcc.Input(id="patient-b-input", type="number", value=_default_b, min=0, max=_max_patient,
+                          style={"width": "100%", "padding": "8px", "borderRadius": "4px", "border": "1px solid #d1d5db"}),
+            ]),
+            html.Div(style={"paddingTop": "20px"}, children=[
+                html.Button("Random Pair", id="random-btn",
+                            style={"padding": "8px 16px", "backgroundColor": "#2563eb", "color": "white",
+                                   "border": "none", "borderRadius": "4px", "cursor": "pointer"}),
+            ]),
+        ]),
+
+        # Side-by-side curves
+        html.Div(style={"display": "flex", "gap": "16px", "flexWrap": "wrap"}, children=[
+            html.Div(style={"flex": "1", "minWidth": "400px"}, children=[
+                dcc.Graph(id="curve-a"),
+                html.Div(id="info-a", style={"padding": "8px", "backgroundColor": "#f9fafb", "borderRadius": "4px"}),
+            ]),
+            html.Div(style={"flex": "1", "minWidth": "400px"}, children=[
+                dcc.Graph(id="curve-b"),
+                html.Div(id="info-b", style={"padding": "8px", "backgroundColor": "#f9fafb", "borderRadius": "4px"}),
+            ]),
+        ]),
+
+        # Marginal benefit explanation
+        html.Div(id="comparison-insight", style={
+            "marginTop": "16px", "padding": "16px", "backgroundColor": "#eff6ff",
+            "borderRadius": "8px", "borderLeft": "4px solid #2563eb",
+        }),
+    ])
 
 
 def _fetch_patient(index: int) -> dict | None:
@@ -170,7 +172,7 @@ def update_curves(idx_a, idx_b):
         if not p:
             return "No data"
         if p["event_indicator"]:
-            caught = p["time_to_event"] > p["assigned_day"]
+            caught = p["time_to_event"] >= p["assigned_day"]
             event_str = f"Readmitted on day {p['time_to_event']:.0f}"
             if caught:
                 event_str += f" - follow-up on day {p['assigned_day']} would have occurred first"
@@ -181,14 +183,16 @@ def update_curves(idx_a, idx_b):
             event_str = "No readmission within 30 days"
             event_color = "#6b7280"
         risk_30 = (1 - p["survival_curve"][30]) * 100 if len(p["survival_curve"]) > 30 else 0
-        caught_icon = "✓" if p["event_indicator"] and p["time_to_event"] > p["assigned_day"] else "✗" if p["event_indicator"] else "✓"
+        caught_icon = "✓" if p["event_indicator"] and p["time_to_event"] >= p["assigned_day"] else "✗" if p["event_indicator"] else "✓"
         if not p["event_indicator"]:
             event_color = "#16a34a"
         return html.Div([
             html.Div(style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "4px 16px", "lineHeight": "1.8"}, children=[
                 html.Div([html.Strong("Specialty: "), p['specialty'].replace('_', ' ').title()]),
                 html.Div([html.Strong("30-day risk: "), f"{risk_30:.1f}%"]),
-                html.Div([html.Strong("Follow-up: "), f"day {p['assigned_day']}"]),
+                html.Div([html.Strong("Follow-up: "), f"day {p['assigned_day']}"
+                      + (" (no saved schedule loaded; default day)"
+                         if p.get("assignment_policy") == "default" else "")]),
                 html.Div([html.Strong("Cost: "), f"EUR {p['cost']:,.0f}"]),
             ]),
             html.Div(style={

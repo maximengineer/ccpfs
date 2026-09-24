@@ -68,6 +68,7 @@ class PatientCurve(BaseModel):
     patient_index: int
     survival_curve: list[float]
     assigned_day: int
+    assignment_policy: str  # policy the day comes from, or "default" if none is loaded
     specialty: str
     specialty_index: int
     event_indicator: bool

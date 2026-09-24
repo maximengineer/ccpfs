@@ -16,7 +16,7 @@ python demo_setup.py                            # ~30 sec - 10K synthetic patien
 docker compose -f docker-compose.demo.yml up    # Dashboard at http://localhost:3000
 ```
 
-The synthetic cohort uses Weibull survival distributions calibrated to match MIMIC-IV's specialty mix (General Medicine 55.1%, Cardiology 19.7%, Neurology 13.7%, Surgery 11.5%) and the overall 20% readmission rate. **All framework code runs identically** — only the patient data is synthetic. The dashboard, API, and every scheduling policy behave exactly as they do on the real cohort. Every artefact produced by `demo_setup.py` is tagged `"synthetic": true` so it can never be confused with real MIMIC-IV output.
+The synthetic cohort uses Weibull survival distributions calibrated to match MIMIC-IV's specialty mix (General Medicine 55.1%, Cardiology 19.7%, Neurology 13.7%, Surgery 11.5%) and the overall 20% readmission rate. **All framework code runs identically** — only the patient data is synthetic. The dashboard, API, and every scheduling policy behave exactly as they do on the real cohort. Every artefact produced by `demo_setup.py` is tagged `"synthetic": true` so it can never be confused with real MIMIC-IV output. No survival model is trained in demo mode: the model C-index/IBS values shown on the demo dashboard are fixed placeholders, not computed metrics.
 
 Demo output is written to `data/demo/` — a **separate directory** from `data/processed/` (which is reserved for real MIMIC-IV pipeline output). The two are never mixed. The script refuses to overwrite non-synthetic data and provides a clean command:
 
@@ -115,7 +115,7 @@ ccpfs/
 ├── docker-compose.demo.yml         # Demo-mode orchestration (mounts data/demo/ instead)
 ├── .dockerignore                   # Excludes raw data, synthetic demo data, large models from build context
 │
-├── tests/                          # pytest suite (24 tests)
+├── tests/                          # pytest suite (28 tests)
 │   └── test_policy.py
 │
 ├── notebooks/                      # Jupyter demonstrations
@@ -256,9 +256,9 @@ Cost_i(d) = C_EVENT × (1 - S_i(d)) + C_VISIT
 
 where C_EVENT = €10,000 (adverse event cost) and C_VISIT = €150 (appointment cost).
 
-The problem is reformulated as a min-cost assignment and solved exactly via the Hungarian algorithm (scipy `linear_sum_assignment`). An ILP solver (PuLP/CBC) is also available for small cohorts. A greedy heuristic provides near-optimal results in under 50ms for real-time deployment.
+The problem is reformulated as a min-cost assignment and solved exactly with scipy's `linear_sum_assignment` (a modified Jonker–Volgenant shortest-augmenting-path algorithm), one specialty pool at a time. An ILP solver (PuLP/CBC) is also available for small cohorts. A greedy heuristic schedules the full 27,641-patient test cohort in about 150 ms for real-time deployment.
 
-**Specialty pool capacity** (default daily slots, configurable per hospital):
+**Specialty pool capacity.** The API and dashboard default to these daily slots (configurable per hospital):
 
 | Pool | Slots/day |
 |------|-----------|
@@ -267,6 +267,8 @@ The problem is reformulated as a min-cost assignment and solved exactly via the 
 | Surgery | 15 |
 | General Medicine | 25 |
 | **Total** | **65** |
+
+The paper's retrospective evaluation instead sizes each pool in proportion to its share of the test cohort (`proportional_specialty_capacity`: `ceil(n_k / 30)` slots per day), which gives 184 / 130 / 105 / 504 slots per day on MIMIC-IV. Every pool can then fit all its patients, but not everyone on their best day.
 
 ### Baselines
 
@@ -300,12 +302,13 @@ The MOTOR-T-Base foundation model (143M params, pretrained on 2.57M Stanford EHR
 |--------|:--------:|-----------:|-----------:|
 | Guideline (ACC/AHA) | No | 1,992 | 9.8% |
 | Uniform day 14 | No | 1,422 | 37.3% |
-| Uniform-14 (capacity) | Yes | 1,392 | 38.3% |
-| Greedy (specialty) | Yes | 946 | 61.7% |
-| **MinCost (specialty)** | **Yes** | **759** | **71.0%** |
+| Uniform-14 (capacity) | Yes | 1,410 | 37.7% |
+| Greedy (specialty) | Yes | 1,007 | 59.0% |
+| MinCost (global) | Yes | 999 | 59.1% |
+| **MinCost (specialty)** | **Yes** | **1,003** | **58.9%** |
 | Unconstrained (oracle) | No | 254 | 96.8% |
 
-The optimised specialty scheduler achieves **47% cost reduction** vs uniform-14 and catches **71% of adverse events** before follow-up (vs 37% for uniform). Per-specialty capacity pooling adds 24% improvement over global pooling.
+Capacity-aware policies use capacity proportional to each specialty pool's size (184 / 130 / 105 / 504 slots per day). The optimised specialty scheduler achieves a **29% cost reduction** vs capacity-aware uniform-14 and catches **59% of readmission events** (follow-up on or before the readmission day) vs 38%. The greedy heuristic is within 0.4% of the exact optimum on this cohort. Keeping the specialty pools separate costs 0.4% relative to one shared pool with the same total capacity (global MinCost is a lower bound for specialty MinCost).
 
 ## Dashboard & API
 
@@ -374,7 +377,7 @@ curl -X POST http://localhost:8000/api/schedule \
 
 ### Dashboard Pages
 
-1. **Overview** (`/`) - Hero metrics (47% cost reduction, 71% catch rate), policy comparison bar chart with dual-axis cost/catch rate, model comparison (4 architectures)
+1. **Overview** (`/`) - Hero metrics (cost reduction and catch rate of the optimised scheduler, computed from `pipeline_results.json`), policy comparison bar chart with dual-axis cost/catch rate, model comparison (4 architectures)
 
 2. **Patient Explorer** (`/patients`) - Side-by-side survival curves for any two patients. Demonstrates the marginal benefit principle: patients with steeper risk trajectories get earlier appointments even if their absolute risk is lower. Shows risk exposure shading and event markers (caught vs missed).
 
@@ -391,7 +394,7 @@ curl -X POST http://localhost:8000/api/schedule \
 - **scikit-learn** - StandardScaler, grid search utilities, isotonic regression
 - **Polars / PyArrow** - streaming data processing
 - **matplotlib / seaborn** - visualisation
-- **pytest** - test suite (24 tests passing)
+- **pytest** - test suite (28 tests)
 
 **API & Dashboard:**
 - **FastAPI / Uvicorn** - REST API with auto-generated OpenAPI docs

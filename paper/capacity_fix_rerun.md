@@ -8,6 +8,8 @@
 - The paper (`paper/research_paper.md`) has **not** been edited.
 - No MIMIC-IV number has been regenerated. Every result that depends on capacity must come from the re-run in section 5.
 
+**Status update (2026-09-24, on the machine with MIMIC-IV data):** the re-run is done and the paper and README are updated. See section 10 for the results and for what was changed beyond this guide.
+
 Line numbers for the paper refer to `paper/research_paper.md` as it was on 2026-09-24 (232 lines). Line numbers for the README refer to `README.md` after the commits in section 3.2. Quoted text is included so each spot can still be found after edits.
 
 ---
@@ -16,19 +18,19 @@ Line numbers for the paper refer to `paper/research_paper.md` as it was on 2026-
 
 Work through these in order. Each step points to the section with the details.
 
-- [ ] 1. `git pull` and confirm the fix is present (section 3.3).
-- [ ] 2. Set up the environment and run the tests: 28 should pass (section 5.1).
-- [ ] 3. Point the repo at the MIMIC-IV data (section 5.2).
-- [ ] 4. Confirm the diagnosis on the **current, pre-fix** results (section 4).
-- [ ] 5. Back up the current results (section 5.3).
-- [ ] 6. Re-run `python run_pipeline.py --step schedule,report` and check the statuses (section 5.4).
-- [ ] 7. Extract every number the paper needs (section 5.5). Optionally measure timings (section 5.6).
-- [ ] 8. Fix the paper text that is wrong regardless of the re-run: 13 items (section 6.1).
-- [ ] 9. Replace the capacity-dependent numbers in the paper (section 6.2).
-- [ ] 10. Update the README (section 6.3).
-- [ ] 11. Restart the dashboard/API on the new results (section 5.7).
-- [ ] 12. Decide on Table III: regenerate it, which needs code changes (section 7), or remove it.
-- [ ] 13. Optionally fix the remaining code issues (section 8.3).
+- [x] 1. `git pull` and confirm the fix is present (section 3.3).
+- [ ] 2. Set up the environment and run the tests: 28 should pass (section 5.1). *22/28 in the existing `.venv`: it has PuLP 3.3.0; the 6 ILP tests need PuLP[cbc] ≥ 3.3.2.*
+- [x] 3. Point the repo at the MIMIC-IV data (section 5.2).
+- [x] 4. Confirm the diagnosis on the **current, pre-fix** results (section 4).
+- [x] 5. Back up the current results (section 5.3).
+- [x] 6. Re-run `python run_pipeline.py --step schedule,report` and check the statuses (section 5.4).
+- [x] 7. Extract every number the paper needs (section 5.5). Optionally measure timings (section 5.6).
+- [x] 8. Fix the paper text that is wrong regardless of the re-run: 13 items (section 6.1).
+- [x] 9. Replace the capacity-dependent numbers in the paper (section 6.2).
+- [x] 10. Update the README (section 6.3).
+- [ ] 11. Restart the dashboard/API on the new results (section 5.7). *Not done: needs `docker compose up --build`.*
+- [x] 12. Decide on Table III: regenerate it, which needs code changes (section 7), or remove it.
+- [ ] 13. Optionally fix the remaining code issues (section 8.3). *U1, U4–U7 fixed; U2/U3 (solver speed and memory) not fixed.*
 - [ ] 14. Commit the paper and README updates.
 
 ---
@@ -549,3 +551,78 @@ Fixed pipeline behaviour on the synthetic demo (section 6.2 expectations):
 ```bash
 python demo_setup.py --out-dir /tmp/ccpfs_demo --seed 42    # prints capacity and every policy's cost/catch
 ```
+
+---
+
+## 10. Re-run record (2026-09-24, machine with MIMIC-IV data)
+
+### 10.1 Diagnosis (section 4) confirmed
+
+On the pre-fix results: every capacity-aware policy had `overflow=4447` (`greedy_specialty` read `Feasible (overflow=4447)`, so the paper predates `dafe86a`); pools were 5,518 / 3,877 / 3,149 / **15,097**; 4,802 general-medicine patients sat on day 1 (355 slots). The old JSON reproduced every paper figure (€759 / 71.0%, €999, €946, …). Old files are in `data/processed/pre_capacity_fix/`.
+
+### 10.2 Results after the fix
+
+`python run_pipeline.py --step schedule,report` took 1 h 43 min (peak 6.2 GB, no swap). Capacity 184 / 130 / 105 / 504 per day (spare 2 / 23 / 1 / 23), 27,690 slots. Log: `data/processed/rerun_capacity_fix.log`.
+
+| Policy | Status | €/patient | vs U14 | Catch |
+|---|---|---:|---:|---:|
+| Guideline | Feasible | 1,992 | +40.1% | 9.8% |
+| Uniform day 14 | Feasible | 1,422 | — | 37.3% |
+| Risk bucket | Feasible | 1,350 | −5.1% | 41.3% |
+| Uniform-14 (capacity) | Feasible (capacity-aware) | 1,410 | −0.8% | 37.7% |
+| Guideline (capacity) | Feasible (capacity-aware) | 1,408 | −0.9% | 38.9% |
+| Greedy (global) | Feasible | 1,003 | −29.5% | 59.2% |
+| Greedy (specialty) | Feasible | 1,007 | −29.2% | 59.0% |
+| MinCost (global) | Optimal | 999 | −29.7% | 59.1% |
+| MinCost (specialty) | Optimal | 1,003 | −29.5% | 58.9% |
+| Unconstrained | Feasible | 254 | −82.2% | 96.8% |
+
+Derived: MinCost (spec) vs Uniform-14 (capacity) −28.9%; greedy above MinCost +0.4% (global and specialty); cost of specialty separation +0.4%.
+
+Timings (section 5.6, AMD Ryzen 7 7800X3D, single core): pools 46 s / 16 s / 8 s / 899 s (≈ 16 min total); global MinCost ≈ 87 min; greedy 123–158 ms.
+
+### 10.3 Table III regenerated
+
+`evaluation/cross_model_scheduling.py` (new) calibrates each model on its own validation curves and runs MinCost (specialty) under the same capacity. It reads `parallel_tmp/*_curves.npz`, `models/saved/*` and `motor_output/*`, and writes only to `data/processed/cross_model/`; it never touches `curves_test.npz`. Checks: saved GBM and Cox reproduce `parallel_tmp` curves exactly; scaler → PCA → GBM reproduces `motor_curves.npz` exactly; re-calibrated GBM equals `curves_test.npz` exactly and gives the same €1,003 / 58.9% as the pipeline.
+
+| Model | C-index | €/patient (own curves) | vs own U14 | Catch |
+|---|---:|---:|---:|---:|
+| Cox PH | 0.702 | 1,011 | −28.8% | 58.3% |
+| GBM | 0.706 | 1,003 | −29.5% | 58.9% |
+| RSF | 0.698 | 1,011 | −28.8% | 58.0% |
+| MOTOR+GBM | 0.669 | 1,058 | −25.5% | 54.7% |
+
+The pipeline-level section 7 changes (env override for `PROCESSED_DIR`, per-model calibration in `step_calibrate`) were not made; the standalone script covers U1 without changing the pipeline.
+
+### 10.4 Paper and README changes
+
+All of 6.1 (items 1–13) and 6.2 are applied. Choices made:
+- Item 4: kept the €150 visit in the figures and reworded the definition.
+- Item 8: the headline comparator is **capacity-aware uniform day 14** everywhere (abstract, contribution 2, finding 1, conclusion); Table II's column stays "vs Uniform-14" (uncapacitated).
+- Item 9: text changed to the fixed 30% / 15% thresholds; code unchanged.
+
+Found during the update and also fixed in the paper:
+- Line 126's "early slots have 3–4x higher mean cost" was false even before the fix (ratio 0.55 then, 0.90 now). Replaced with the 30-day risk of early vs late patients (42.8% vs 8.6%) and the expected event cost an early slot avoids (€3,574 vs €87).
+- The abstract's "greedy achieves near-optimal results" is now supported (0.4%). Finding 5 adds that this is data-dependent: on the synthetic demo (seed 42) greedy is 37.5% above MinCost (€1,077 vs €783).
+- §III.B and §V.B no longer claim that similar C-indices "confirm" similar schedules; Table III now tests that directly.
+- §V.C adds two limitations: expected cost is scored with the optimiser's own curves (catch rate is the outcome check), and capacity is sized to the test cohort.
+- "1 − S(d) is the readmission probability before day d" → "by day d"; the catch-rate sentence now says "no later than the readmission".
+
+README: test count 28, Jonker–Volgenant wording, ~150 ms greedy, a note that evaluation uses proportional capacity, the new results table and summary (24% claim removed), dashboard hero-metric text, and a note that demo model metrics are placeholders.
+
+### 10.5 Code changes in this session
+
+- `evaluation/cross_model_scheduling.py` (new): Table III.
+- U4: `evaluation/synthetic.py` docstring now gives ~48% / 24% / 12%.
+- U5: README and a `demo_setup.py` comment say that demo model metrics are fixed placeholders.
+- U6: `dashboard/pages/patient_explorer.py` builds its layout per page load, so the patient range follows the loaded cohort.
+- U7: `/api/patients/{i}/curve` returns `assignment_policy` (`"default"` when no schedule is loaded), and the explorer shows a note.
+- New: the explorer marked a readmission on the follow-up day as "missed" (`>`), while the metric counts it as caught; now `>=`.
+
+### 10.6 Still open
+
+- **Venv:** PuLP 3.3.0 in `.venv`; the 6 ILP tests need `PuLP[cbc]>=3.3.2` (22/28 pass). Not installed without the owner's go-ahead.
+- **Dashboard/API restart** (section 5.7): `docker compose up --build`.
+- **U2/U3:** exact solves are slow (16 min specialty, 87 min global) and the global solve needs ~6 GB. A transportation-problem / min-cost-flow formulation (30 day-nodes instead of 27K slot columns) would be much faster, but alternative optima could shift catch rates slightly, so it would need its own re-run.
+- **New, minor:** `pipeline_results.json` `cohort_size` is the *test* size on real data (27,641) but the *full* cohort in the demo (10,000); the API shows it as "total episodes".
+- **Commit** the paper, README and code changes.

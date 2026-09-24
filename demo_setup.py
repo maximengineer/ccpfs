@@ -274,6 +274,8 @@ def write_pipeline_results(cohort: dict, test: dict, policies: dict, out_path: P
 
 
 def write_models_info(out_path: Path):
+    # Fixed placeholder metrics (no model is trained in demo mode); the
+    # dashboard's model-comparison chart needs something to show.
     data = {
         "synthetic": True,
         "best_model": "gbm",

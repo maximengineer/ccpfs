@@ -6,9 +6,11 @@ the scheduling pipeline without real data.
 
 Uses Weibull distributions with three risk profiles to mimic a realistic
 heart failure discharge cohort:
-  - High risk (~25%):  steep early hazard, 30-day event rate ~35%
-  - Medium risk (~50%): moderate hazard, 30-day event rate ~15%
-  - Low risk (~25%):   flat hazard, 30-day event rate ~5%
+  - High risk (~25%):  steep early hazard, 30-day event rate ~48%
+  - Medium risk (~50%): moderate hazard, 30-day event rate ~24%
+  - Low risk (~25%):   flat hazard, 30-day event rate ~12%
+(rates are 1 - S(30) of each group's base Weibull curve; the group fractions
+are configurable, and demo_setup.py uses 10% / 40% / 50%)
 """
 
 import numpy as np
