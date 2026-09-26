@@ -3,12 +3,12 @@
 **Written:** 2026-09-24, from a review session on a machine without MIMIC-IV data.
 **Purpose:** a self-contained handover for re-running the pipeline on the machine that has the data, and for updating the paper and README. It records everything found in the review and everything that still needs doing.
 
-**Status when written:**
-- The code fixes are made and tested: 28 tests pass, and the demo and API were checked. They are committed as four commits on top of `71e8e1b` (section 3.2).
-- The paper (`paper/research_paper.md`) has **not** been edited.
-- No MIMIC-IV number has been regenerated. Every result that depends on capacity must come from the re-run in section 5.
+**Status history:**
+- **2026-09-24, review machine:** code fixes made and tested (28 tests), committed as four commits on top of `71e8e1b` (section 3.2). The paper was not yet edited and no MIMIC-IV number was regenerated.
+- **2026-09-24, MIMIC-IV machine:** re-run done; paper, README and Table III updated; committed in `572577e` (section 10).
+- **2026-09-26, review of `572577e`:** further code fixes and two new analyses (confidence intervals, capacity-aware risk bucket). The remaining MIMIC-IV work is in **`paper/mimic_followup.md`** (section 11).
 
-**Status update (2026-09-24, on the machine with MIMIC-IV data):** the re-run is done and the paper and README are updated. See section 10 for the results and for what was changed beyond this guide.
+Sections 0–9 below are the original 2026-09-24 guide and are kept as the record of that work.
 
 Line numbers for the paper refer to `paper/research_paper.md` as it was on 2026-09-24 (232 lines). Line numbers for the README refer to `README.md` after the commits in section 3.2. Quoted text is included so each spot can still be found after edits.
 
@@ -31,7 +31,7 @@ Work through these in order. Each step points to the section with the details.
 - [ ] 11. Restart the dashboard/API on the new results (section 5.7). *Not done: needs `docker compose up --build`.*
 - [x] 12. Decide on Table III: regenerate it, which needs code changes (section 7), or remove it.
 - [ ] 13. Optionally fix the remaining code issues (section 8.3). *U1, U4–U7 fixed; U2/U3 (solver speed and memory) not fixed.*
-- [ ] 14. Commit the paper and README updates.
+- [x] 14. Commit the paper and README updates. *Done in `572577e`.*
 
 ---
 
@@ -480,17 +480,17 @@ A quicker alternative: remove Table III and the cross-model scheduling claim.
 | C13 | The scheduler page said curves come from MIMIC-IV, including in demo mode. | Cohort-agnostic text |
 | C14 | `/api/schedule` silently capped demand at pool size, so the demo's demand sliders stopped having any effect. | Resampling with replacement |
 
-### 8.3 Code: not fixed
+### 8.3 Code: not fixed on 2026-09-24
 
-| # | Problem | Notes |
-|---|---|---|
-| U1 | Table III can't be reproduced: calibration keeps only the best model's curves, `--survival-curves` overwrites `curves_test.npz` and `models_info.json`, and `PROCESSED_DIR` has no override. | Section 7 |
-| U2 | `schedule_mincost_global` builds a dense ~6.1 GB matrix at 27,641 patients and has no decomposition. | Needs ≥ 16 GB RAM (5.4) |
-| U3 | The exact per-pool solve is slow for large pools: 55 s at 5.4K patients, ≥ 11 min for general medicine (15.3K). | Relevant to P8 |
-| U4 | The `evaluation/synthetic.py` docstring says the risk groups have ~35% / 15% / 5% event rates; the parameters actually give ~48% / 24% / 12%. | Docstring only |
-| U5 | `demo_setup.py` writes fixed, made-up model metrics (C-index 0.704, etc.) that the demo dashboard shows. Tagged synthetic, not computed. | Worth a README note |
-| U6 | The patient explorer fetches the patient count once, when the dashboard starts. If the API isn't up yet, it falls back to the MIMIC value (27,640). | Minor |
-| U7 | `/api/patients/{i}/curve` falls back to assigned day 15 when no scheduling results are loaded, without saying so. | Minor |
+| # | Problem | Notes | Status (2026-09-26) |
+|---|---|---|---|
+| U1 | Table III can't be reproduced: calibration keeps only the best model's curves, `--survival-curves` overwrites `curves_test.npz` and `models_info.json`, and `PROCESSED_DIR` has no override. | Section 7 | Fixed in `572577e` (`evaluation/cross_model_scheduling.py`) |
+| U2 | `schedule_mincost_global` builds a dense ~6.1 GB matrix at 27,641 patients and has no decomposition. | Needs ≥ 16 GB RAM (5.4) | Open |
+| U3 | The exact per-pool solve is slow for large pools: 55 s at 5.4K patients, ≥ 11 min for general medicine (15.3K). | Relevant to P8 | Open |
+| U4 | The `evaluation/synthetic.py` docstring says the risk groups have ~35% / 15% / 5% event rates; the parameters actually give ~48% / 24% / 12%. | Docstring only | Fixed in `572577e` |
+| U5 | `demo_setup.py` writes fixed, made-up model metrics (C-index 0.704, etc.) that the demo dashboard shows. Tagged synthetic, not computed. | Worth a README note | Fixed in `572577e` (README note) |
+| U6 | The patient explorer fetches the patient count once, when the dashboard starts. If the API isn't up yet, it falls back to the MIMIC value (27,640). | Minor | Fixed in `572577e` |
+| U7 | `/api/patients/{i}/curve` falls back to assigned day 15 when no scheduling results are loaded, without saying so. | Minor | Fixed in `572577e` |
 
 ---
 
@@ -624,5 +624,20 @@ README: test count 28, Jonker–Volgenant wording, ~150 ms greedy, a note that e
 - **Venv:** PuLP 3.3.0 in `.venv`; the 6 ILP tests need `PuLP[cbc]>=3.3.2` (22/28 pass). Not installed without the owner's go-ahead.
 - **Dashboard/API restart** (section 5.7): `docker compose up --build`.
 - **U2/U3:** exact solves are slow (16 min specialty, 87 min global) and the global solve needs ~6 GB. A transportation-problem / min-cost-flow formulation (30 day-nodes instead of 27K slot columns) would be much faster, but alternative optima could shift catch rates slightly, so it would need its own re-run.
-- **New, minor:** `pipeline_results.json` `cohort_size` is the *test* size on real data (27,641) but the *full* cohort in the demo (10,000); the API shows it as "total episodes".
-- **Commit** the paper, README and code changes.
+- **New, minor:** `pipeline_results.json` `cohort_size` is the *test* size on real data (27,641) but the *full* cohort in the demo (10,000); the API shows it as "total episodes". *Fixed 2026-09-26: explicit `total_episodes` / `test_episodes` keys (section 11).*
+- **Commit** the paper, README and code changes. *Done in `572577e`.*
+
+---
+
+## 11. Follow-up review of `572577e` (2026-09-26)
+
+A review of the re-run commit found three wrong statements in the paper, two analysis gaps, and some small code issues. The code fixes were made on the review machine. Everything that needs MIMIC-IV data, plus the paper edits, is in **`paper/mimic_followup.md`**, which is self-contained.
+
+Code fixed in the review:
+- `DEMO_MODE_PLAN.md`: stale `scheduling_follow_up` paths and the `pipeline_results.json` key list.
+- Patient explorer and chart: the chart rounded the readmission time before deciding caught/missed (13.6 with follow-up on day 14 showed "Caught"; the metric says missed). Both now use the unrounded time. The text no longer says the follow-up "would have occurred first" for same-day events.
+- `evaluation/cross_model_scheduling.py`: stops on any input mismatch (each saved model vs its `parallel_tmp` curves, MOTOR row order vs the cohort, re-calibrated GBM vs `curves_test.npz`); cache refreshed when inputs change; saves each model's schedule (`{model}_days.npy`).
+- `total_episodes` / `test_episodes` keys in `pipeline_results.json` (pipeline and demo), preferred by the API.
+- New baseline `risk_bucket_capacity_policy` (`policy/baselines.py`), in the pipeline, demo, dashboard and tests. The capacity-aware uniform and guideline baselines now share one helper; their schedules are unchanged (verified identical).
+- New `evaluation/bootstrap_ci.py`: paired bootstrap confidence intervals for Table II and Table III.
+- README: test count 30; new baseline in the baselines table; `/api/results` no longer claims "10 policies".
