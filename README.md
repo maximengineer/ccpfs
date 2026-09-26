@@ -115,7 +115,7 @@ ccpfs/
 ├── docker-compose.demo.yml         # Demo-mode orchestration (mounts data/demo/ instead)
 ├── .dockerignore                   # Excludes raw data, synthetic demo data, large models from build context
 │
-├── tests/                          # pytest suite (28 tests)
+├── tests/                          # pytest suite (30 tests)
 │   └── test_policy.py
 │
 ├── notebooks/                      # Jupyter demonstrations
@@ -280,6 +280,7 @@ The paper's retrospective evaluation instead sizes each pool in proportion to it
 | Unconstrained | Each patient at individual cost-optimal day (ignores capacity) |
 | Uniform-14 (capacity) | Day 14 with overflow to nearest available (capacity-aware) |
 | Guideline (capacity) | Guideline with overflow handling (capacity-aware) |
+| Risk-Bucket (capacity) | Risk-bucket days with overflow to nearest available; highest-risk patients placed first (capacity-aware) |
 
 ## Results (MIMIC-IV, 27,641 Test Patients)
 
@@ -357,7 +358,7 @@ Requires: `pip install fastapi uvicorn dash plotly requests polars`
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Service status, loaded models, patient count |
-| GET | `/api/results` | Pre-computed pipeline results (4 models, 10 policies) |
+| GET | `/api/results` | Pre-computed pipeline results (4 models, all scheduling policies) |
 | GET | `/api/patients/{index}/curve` | Individual S(t) curve, assignment, specialty, cost |
 | GET | `/api/patients/count` | Total number of test patients |
 | POST | `/api/schedule` | Simulate scheduling with custom capacity and patient demand |
@@ -394,7 +395,7 @@ curl -X POST http://localhost:8000/api/schedule \
 - **scikit-learn** - StandardScaler, grid search utilities, isotonic regression
 - **Polars / PyArrow** - streaming data processing
 - **matplotlib / seaborn** - visualisation
-- **pytest** - test suite (28 tests)
+- **pytest** - test suite (30 tests)
 
 **API & Dashboard:**
 - **FastAPI / Uvicorn** - REST API with auto-generated OpenAPI docs

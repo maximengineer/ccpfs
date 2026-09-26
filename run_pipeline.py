@@ -448,6 +448,7 @@ def step_schedule(args, survival_curves, cohort):
     from policy.baselines import (
         uniform_policy, risk_bucket_policy, guideline_policy,
         unconstrained_optimal_policy, uniform_capacity_policy, guideline_capacity_policy,
+        risk_bucket_capacity_policy,
     )
 
     specialty_pools = cohort["specialty_pool"].to_numpy()
@@ -501,6 +502,12 @@ def step_schedule(args, survival_curves, cohort):
     )
     print(f"    Guideline (capacity): cost={results['guideline_cap']['total_expected_cost']:,.0f}"
           f"  {results['guideline_cap']['status']}")
+
+    results["risk_bucket_cap"] = risk_bucket_capacity_policy(
+        survival_curves, specialty_pools, capacity_per_specialty_day=scaled_specialty_cap,
+    )
+    print(f"    Risk bucket (capacity): cost={results['risk_bucket_cap']['total_expected_cost']:,.0f}"
+          f"  {results['risk_bucket_cap']['status']}")
 
     # --- Greedy ---
     print("\n  Running greedy (global capacity)...")
@@ -568,8 +575,10 @@ def step_schedule(args, survival_curves, cohort):
 # ---------------------------------------------------------------------------
 # STEP 6: Report
 # ---------------------------------------------------------------------------
-def step_report(scheduling_results, models_info, cohort, e_test=None, t_test=None):
-    """Generate summary report."""
+def step_report(scheduling_results, models_info, cohort, e_test=None, t_test=None,
+                total_episodes=None):
+    """Generate summary report. `cohort` is the test cohort; `total_episodes`
+    is the size of the full cohort (all splits)."""
     print("\n" + "=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)
@@ -617,7 +626,9 @@ def step_report(scheduling_results, models_info, cohort, e_test=None, t_test=Non
 
     # Save results JSON
     output = {
-        "cohort_size": n,
+        "cohort_size": n,  # test episodes (kept for existing readers)
+        "test_episodes": n,
+        "total_episodes": total_episodes if total_episodes is not None else n,
         "model_performance": models_info,
         "scheduling_results": {
             name: {
@@ -833,7 +844,8 @@ def main():
 
     # --- Step 6: Report ---
     if "report" in steps and scheduling_results:
-        step_report(scheduling_results, models_info, test_cohort, e_test=e_test, t_test=t_test)
+        step_report(scheduling_results, models_info, test_cohort, e_test=e_test, t_test=t_test,
+                    total_episodes=len(cohort))
 
     elapsed = time.time() - t_start
     print(f"\n  Total pipeline time: {elapsed / 60:.1f} minutes")

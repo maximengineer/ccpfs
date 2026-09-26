@@ -129,6 +129,60 @@ def guideline_policy(
     }
 
 
+def _shift_to_capacity(
+    preferred_days: np.ndarray,
+    specialty_pools: np.ndarray,
+    capacity_per_specialty_day: dict,
+    horizon: int,
+) -> tuple[dict, int]:
+    """Give each patient their preferred day, or the nearest day with a free
+    slot in their pool (searching later first, then earlier, one day at a time).
+
+    Patients are processed in index order. If a pool is full on every day, the
+    patient keeps the preferred day and is counted as overflow.
+    """
+    remaining = {}
+    for k in range(N_SPECIALTIES):
+        cap = capacity_per_specialty_day.get(k, 0)
+        remaining[k] = np.full(horizon, cap, dtype=int)
+
+    assignments = {}
+    overflow_count = 0
+
+    for i in range(len(preferred_days)):
+        k = int(specialty_pools[i])
+        preferred = int(preferred_days[i])
+        assigned = False
+        for offset in range(horizon):
+            for candidate in [preferred - 1 + offset, preferred - 1 - offset]:
+                if 0 <= candidate < horizon and remaining[k][candidate] > 0:
+                    assignments[i] = candidate + 1
+                    remaining[k][candidate] -= 1
+                    assigned = True
+                    break
+            if assigned:
+                break
+        if not assigned:
+            assignments[i] = preferred
+            overflow_count += 1
+
+    return assignments, overflow_count
+
+
+def _capacity_result(assignments, overflow_count, survival_curves, c_event, c_visit) -> dict:
+    status = "Feasible (capacity-aware)"
+    if overflow_count > 0:
+        status = f"Infeasible ({overflow_count} overflow assignments)"
+    return {
+        "assignments": assignments,
+        "status": status,
+        "total_expected_cost": _compute_total_cost(
+            assignments, survival_curves, c_event, c_visit
+        ),
+        "overflow_count": overflow_count,
+    }
+
+
 def uniform_capacity_policy(
     survival_curves: np.ndarray,
     specialty_pools: np.ndarray,
@@ -146,45 +200,11 @@ def uniform_capacity_policy(
     if capacity_per_specialty_day is None:
         capacity_per_specialty_day = DEFAULT_SPECIALTY_CAPACITY
 
-    remaining = {}
-    for k in range(N_SPECIALTIES):
-        cap = capacity_per_specialty_day.get(k, 0)
-        remaining[k] = np.full(horizon, cap, dtype=int)
-
-    n = survival_curves.shape[0]
-    assignments = {}
-    overflow_count = 0
-
-    for i in range(n):
-        k = int(specialty_pools[i])
-        assigned = False
-        # Try preferred day first, then search outward
-        for offset in range(horizon):
-            for candidate in [day - 1 + offset, day - 1 - offset]:
-                if 0 <= candidate < horizon and remaining[k][candidate] > 0:
-                    assignments[i] = candidate + 1
-                    remaining[k][candidate] -= 1
-                    assigned = True
-                    break
-            if assigned:
-                break
-        if not assigned:
-            # Capacity exhausted — assign to preferred day but flag as overflow
-            assignments[i] = day
-            overflow_count += 1
-
-    status = "Feasible (capacity-aware)"
-    if overflow_count > 0:
-        status = f"Infeasible ({overflow_count} overflow assignments)"
-
-    return {
-        "assignments": assignments,
-        "status": status,
-        "total_expected_cost": _compute_total_cost(
-            assignments, survival_curves, c_event, c_visit
-        ),
-        "overflow_count": overflow_count,
-    }
+    preferred = np.full(survival_curves.shape[0], day)
+    assignments, overflow_count = _shift_to_capacity(
+        preferred, specialty_pools, capacity_per_specialty_day, horizon
+    )
+    return _capacity_result(assignments, overflow_count, survival_curves, c_event, c_visit)
 
 
 def guideline_capacity_policy(
@@ -209,43 +229,48 @@ def guideline_capacity_policy(
     if is_heart_failure is None:
         is_heart_failure = np.zeros(n, dtype=bool)
 
-    remaining = {}
-    for k in range(N_SPECIALTIES):
-        cap = capacity_per_specialty_day.get(k, 0)
-        remaining[k] = np.full(horizon, cap, dtype=int)
+    preferred = np.where(is_heart_failure, hf_day, default_day)
+    assignments, overflow_count = _shift_to_capacity(
+        preferred, specialty_pools, capacity_per_specialty_day, horizon
+    )
+    return _capacity_result(assignments, overflow_count, survival_curves, c_event, c_visit)
 
-    assignments = {}
-    overflow_count = 0
 
-    for i in range(n):
-        k = int(specialty_pools[i])
-        preferred = hf_day if is_heart_failure[i] else default_day
-        assigned = False
-        for offset in range(horizon):
-            for candidate in [preferred - 1 + offset, preferred - 1 - offset]:
-                if 0 <= candidate < horizon and remaining[k][candidate] > 0:
-                    assignments[i] = candidate + 1
-                    remaining[k][candidate] -= 1
-                    assigned = True
-                    break
-            if assigned:
-                break
-        if not assigned:
-            assignments[i] = preferred
-            overflow_count += 1
+def risk_bucket_capacity_policy(
+    survival_curves: np.ndarray,
+    specialty_pools: np.ndarray,
+    capacity_per_specialty_day: dict = None,
+    high_threshold: float = 0.30,
+    mid_threshold: float = 0.15,
+    high_day: int = 7,
+    mid_day: int = 14,
+    low_day: int = 30,
+    c_event: float = C_EVENT,
+    c_visit: float = C_VISIT,
+    horizon: int = HORIZON_DAYS,
+) -> dict:
+    """Risk bucket with capacity overflow: same buckets as risk_bucket_policy
+    (30-day risk ≥ 30% → day 7, ≥ 15% → day 14, else day 30), shifted to the
+    nearest free day in the patient's pool when the bucket day is full.
 
-    status = "Feasible (capacity-aware)"
-    if overflow_count > 0:
-        status = f"Infeasible ({overflow_count} overflow assignments)"
+    Highest-risk patients are placed first, so when a bucket day overflows it
+    is the lower-risk patients who move.
+    """
+    if capacity_per_specialty_day is None:
+        capacity_per_specialty_day = DEFAULT_SPECIALTY_CAPACITY
 
-    return {
-        "assignments": assignments,
-        "status": status,
-        "total_expected_cost": _compute_total_cost(
-            assignments, survival_curves, c_event, c_visit
-        ),
-        "overflow_count": overflow_count,
-    }
+    risk_30 = 1.0 - survival_curves[:, horizon]
+    preferred = np.where(
+        risk_30 >= high_threshold, high_day,
+        np.where(risk_30 >= mid_threshold, mid_day, low_day),
+    )
+    order = np.argsort(-risk_30, kind="stable")
+    shifted, overflow_count = _shift_to_capacity(
+        preferred[order], specialty_pools[order], capacity_per_specialty_day, horizon
+    )
+    # Back to patient order (keeps the cost sum identical to other policies')
+    assignments = dict(sorted((int(order[j]), d) for j, d in shifted.items()))
+    return _capacity_result(assignments, overflow_count, survival_curves, c_event, c_visit)
 
 
 def unconstrained_optimal_policy(

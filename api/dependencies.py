@@ -23,6 +23,7 @@ POLICY_META = [
     ("risk_bucket", "Risk bucket", False),
     ("uniform_d14_cap", "Uniform-14 (capacity)", True),
     ("guideline_cap", "Guideline (capacity)", True),
+    ("risk_bucket_cap", "Risk bucket (capacity)", True),
     ("greedy_global", "Greedy (global)", True),
     ("greedy_specialty", "Greedy (specialty)", True),
     ("mincost_global", "MinCost (global)", True),

@@ -34,7 +34,9 @@ def get_results():
         specialty_pcts[name] = round(float((specialty_pools == idx).mean()) * 100, 1)
 
     cohort = CohortSummary(
-        total_episodes=pr["cohort_size"],
+        # Older pipeline_results.json files only have cohort_size, which is
+        # the test-set size on real data
+        total_episodes=pr.get("total_episodes", pr["cohort_size"]),
         test_episodes=n_test,
         event_rate=round(n_events / n_test, 3),
         specialties=specialty_pcts,

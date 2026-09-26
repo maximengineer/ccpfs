@@ -24,6 +24,7 @@ from policy.greedy_scheduler import schedule_greedy
 from policy.baselines import (
     uniform_policy,
     risk_bucket_policy,
+    risk_bucket_capacity_policy,
     guideline_policy,
     unconstrained_optimal_policy,
 )
@@ -287,6 +288,24 @@ class TestSpecialtyCapacity:
         per_day = np.bincount(list(result["assignments"].values()), minlength=31)[1:]
         assert len(result["assignments"]) == n
         assert per_day.max() - per_day.min() <= 1  # spread evenly, not piled on day 1
+
+    def test_risk_bucket_capacity_respects_capacity(self, cohort, pools):
+        curves = cohort["survival_curves"]
+        cap = proportional_specialty_capacity(pools, horizon=30)
+        result = risk_bucket_capacity_policy(curves, pools, capacity_per_specialty_day=cap)
+        days = np.array([result["assignments"][i] for i in range(len(curves))])
+        assert result["status"] == "Feasible (capacity-aware)"
+        for k in range(4):
+            per_day = np.bincount(days[pools == k], minlength=31)[1:]
+            assert per_day.max() <= cap[k]
+
+    def test_risk_bucket_capacity_matches_uncapacitated_when_slack(self, cohort):
+        # With ample capacity nobody has to move off their bucket day
+        curves = cohort["survival_curves"]
+        pools = np.zeros(len(curves), dtype=int)
+        cap = {0: len(curves), 1: 0, 2: 0, 3: 0}
+        capped = risk_bucket_capacity_policy(curves, pools, capacity_per_specialty_day=cap)
+        assert capped["assignments"] == risk_bucket_policy(curves)["assignments"]
 
     def test_mincost_global_does_not_mutate_capacity(self, cohort):
         cap = np.full(30, 2)  # 60 slots for 100 patients forces the top-up path

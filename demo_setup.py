@@ -37,6 +37,7 @@ from evaluation.synthetic import generate_synthetic_cohort
 from policy.baselines import (
     guideline_capacity_policy,
     guideline_policy,
+    risk_bucket_capacity_policy,
     risk_bucket_policy,
     unconstrained_optimal_policy,
     uniform_capacity_policy,
@@ -202,6 +203,8 @@ def run_all_policies(test: dict) -> dict:
         curves, pools, day=14, capacity_per_specialty_day=capacity))
     finalise("guideline_cap", guideline_capacity_policy(
         curves, pools, is_heart_failure=is_hf, capacity_per_specialty_day=capacity))
+    finalise("risk_bucket_cap", risk_bucket_capacity_policy(
+        curves, pools, capacity_per_specialty_day=capacity))
 
     print("  Running greedy schedulers...")
     finalise("greedy_specialty", schedule_greedy_specialty(
@@ -257,7 +260,9 @@ def write_pipeline_results(cohort: dict, test: dict, policies: dict, out_path: P
     data = {
         "synthetic": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "cohort_size": n_total,
+        "cohort_size": n_test,  # test episodes, as in run_pipeline.py
+        "test_episodes": n_test,
+        "total_episodes": n_total,
         "model_performance": {
             "gbm_metrics": {"c_index": 0.704, "ibs": 0.099},
             "gbm_params": {"learning_rate": 0.1, "max_depth": 5, "n_estimators": 200, "note": "synthetic demo"},
