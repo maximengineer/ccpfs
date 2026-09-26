@@ -114,15 +114,18 @@ def survival_curve_figure(curve: list[float], assigned_day: int,
     if event_indicator and time_to_event <= 30:
         event_day = round(time_to_event)
         event_surv = curve[min(event_day, len(curve) - 1)]
-        color = COLORS["danger"] if event_day < assigned_day else COLORS["success"]
-        label = "Missed" if event_day < assigned_day else "Caught"
+        # Same rule as evaluation.metrics: missed only if the readmission
+        # came before the follow-up day (use the unrounded time)
+        missed = time_to_event < assigned_day
+        color = COLORS["danger"] if missed else COLORS["success"]
+        label = "Missed" if missed else "Caught"
         fig.add_trace(go.Scatter(
             x=[event_day], y=[event_surv],
             mode="markers+text",
             marker=dict(size=14, color=color, symbol="diamond"),
             text=[f"Event ({label})"],
             textposition="bottom center",
-            name=f"Readmission (day {event_day})",
+            name=f"Readmission (day {time_to_event:.1f})",
         ))
 
     color = SPECIALTY_COLORS.get(specialty, COLORS["primary"])

@@ -173,9 +173,9 @@ def update_curves(idx_a, idx_b):
             return "No data"
         if p["event_indicator"]:
             caught = p["time_to_event"] >= p["assigned_day"]
-            event_str = f"Readmitted on day {p['time_to_event']:.0f}"
+            event_str = f"Readmitted on day {p['time_to_event']:.1f}"
             if caught:
-                event_str += f" - follow-up on day {p['assigned_day']} would have occurred first"
+                event_str += f" - follow-up on day {p['assigned_day']} is no later than the readmission"
             else:
                 event_str += f" - readmitted before day {p['assigned_day']} follow-up"
             event_color = "#16a34a" if caught else "#dc2626"
