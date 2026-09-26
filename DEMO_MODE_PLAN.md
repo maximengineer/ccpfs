@@ -8,7 +8,7 @@ Let anyone clone the repo and run the CCPFS framework end-to-end in minutes, wit
 
 ```bash
 git clone https://github.com/maximengineer/ccpfs
-cd ccpfs/scheduling_follow_up
+cd ccpfs
 pip install -r requirements.txt
 python demo_setup.py                                       # ~30s - 10K synthetic patients
 docker compose -f docker-compose.demo.yml up               # Dashboard at http://localhost:3000
@@ -105,7 +105,7 @@ Required by `api/dependencies.py` and `api/routers/scheduling.py`:
 ## File Layout
 
 ```
-scheduling_follow_up/
+ccpfs/
   demo_setup.py                 # the script
   docker-compose.demo.yml       # standalone compose for demo mode
   DEMO_MODE_PLAN.md             # this document
@@ -115,7 +115,7 @@ scheduling_follow_up/
       cohort.parquet
       curves_test.npz           # curves_test, e_test, t_test
       models_info.json          # {synthetic: true, best_model: "gbm", ...}
-      pipeline_results.json     # {synthetic: true, cohort_size, model_performance, scheduling_results}
+      pipeline_results.json     # {synthetic: true, cohort_size, test_episodes, total_episodes, model_performance, scheduling_results}
       scheduling_results.npz    # {policy}_days, {policy}_cost, {policy}_status, policy_names
       motor_output/
         motor_curves.npz        # noisier curves (simulated domain shift)
@@ -173,7 +173,7 @@ After running the demo, confirm:
 
 ## README Changes
 
-A "Try It Without MIMIC-IV (Demo Mode)" section is added near the top of `scheduling_follow_up/README.md`, above the Quick Start. It explains:
+A "Try It Without MIMIC-IV (Demo Mode)" section is added near the top of `README.md`, above the Quick Start. It explains:
 
 - The demo commands (`python demo_setup.py` then `docker compose -f docker-compose.demo.yml up`).
 - That the output goes to `data/demo/` and never collides with `data/processed/`.
